@@ -6,43 +6,46 @@ use App\Models\ImpostazioneLega;
 use App\Models\User;
 use App\Models\Calciatore;
 use App\Models\GiocatoreAcquistato;
-use League\Csv\Reader;
-use League\Csv\Statement;
-
+use App\Models\ChiamataAsta;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\DB; 
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Exception;
+use Carbon\Carbon; // Aggiunto per AdminRosterController@avviaAstaTap e annullaChiamataTap
 
-class AdminController extends Controller // O il nome del tuo controller
-{   
+class AdminController extends Controller
+{
     public function mostraMiaSquadraDashboard()
     {
-        $user = Auth::user(); // Prende l'utente admin attualmente loggato
-        
-        // Controllo di sicurezza aggiuntivo (anche se la rotta è protetta da middleware admin)
+        $user = Auth::user();
         if (!$user || !$user->is_admin) {
             abort(403, 'Accesso non autorizzato a questa sezione.');
         }
         
-        $squadra = $user; // Per usare la stessa variabile della vista 'squadra.dashboard'
-        $impostazioniLega = ImpostazioneLega::firstOrFail(); // Recupera le impostazioni globali
+        $squadra = $user;
+        $impostazioniLega = ImpostazioneLega::firstOrFail();
+        $tagListaAttiva = $impostazioniLega->tag_lista_attiva;
         
-        // Recupera la rosa dell'admin con i dettagli del calciatore
-        $rosa = $squadra->giocatoriAcquistati()->with('calciatore')->get();
+        $rosaQuery = $squadra->giocatoriAcquistati()->with('calciatore');
+        if ($tagListaAttiva) {
+            $rosaQuery->whereHas('calciatore', function ($q) use ($tagListaAttiva) {
+                $q->where('tag_lista_inserimento', $tagListaAttiva);
+            });
+        }
+        $rosa = $rosaQuery->get();
         $costoTotaleRosa = $rosa->sum('prezzo_acquisto');
         
         $conteggioRuoli = collect();
-        if($rosa->isNotEmpty() && $rosa->every(fn($acquisto) => $acquisto->relationLoaded('calciatore') && $acquisto->calciatore)){
-            $conteggioRuoli = $rosa->map(function($acquisto){
-                return $acquisto->calciatore->ruolo;
-            })->countBy();
-        } else if ($rosa->isNotEmpty()) {
-            $idsCalciatoriInRosa = $rosa->pluck('calciatore_id');
-            if ($idsCalciatoriInRosa->isNotEmpty()){
-                $conteggioRuoli = Calciatore::whereIn('id', $idsCalciatoriInRosa)->pluck('ruolo')->countBy();
+        if ($rosa->isNotEmpty()) {
+            $idsCalciatoriInRosa = $rosa->pluck('calciatore_id')->unique()->toArray();
+            if(!empty($idsCalciatoriInRosa)){
+                $queryRuoli = Calciatore::whereIn('id', $idsCalciatoriInRosa);
+                if ($tagListaAttiva) {
+                    $queryRuoli->where('tag_lista_inserimento', $tagListaAttiva);
+                }
+                $conteggioRuoli = $queryRuoli->pluck('ruolo')->countBy();
             }
         }
         
@@ -53,71 +56,70 @@ class AdminController extends Controller // O il nome del tuo controller
             'A' => $impostazioniLega->num_attaccanti,
         ];
         $numeroGiocatoriInRosa = $rosa->count();
-        $limiteGiocatoriTotaliInRosa = $impostazioniLega->num_portieri + $impostazioniLega->num_difensori + $impostazioniLega->num_centrocampisti + $impostazioniLega->num_attaccanti;
+        $limiteGiocatoriTotaliInRosa = array_sum($limitiRuoli);
         
-        // Riutilizziamo la stessa vista 'squadra.dashboard' passando i dati necessari
         return view('squadra.dashboard', compact(
-            'squadra',
-            'rosa',
-            'impostazioniLega',
-            'costoTotaleRosa',
-            'conteggioRuoli',
-            'limitiRuoli',
-            'numeroGiocatoriInRosa',
-            'limiteGiocatoriTotaliInRosa'
+            'squadra', 'rosa', 'impostazioniLega', 'costoTotaleRosa',
+            'conteggioRuoli', 'limitiRuoli', 'numeroGiocatoriInRosa', 'limiteGiocatoriTotaliInRosa'
             ));
     }
     
     public function dashboard()
     {
-        // Recupera le impostazioni della lega. Usa firstOrCreate per sicurezza se la tabella potesse essere vuota.
         $impostazioniLega = ImpostazioneLega::firstOrCreate([], [
-            'fase_asta_corrente' => 'PRE_ASTA',
-            'crediti_iniziali_lega' => 500,
-            'num_portieri' => 6,
-            'num_difensori' => 8,
-            'num_centrocampisti' => 8,
-            'num_attaccanti' => 6,
-            // Aggiungi qui i default anche per i nuovi campi se necessario, anche se settings() dovrebbe gestirli
-            'tag_lista_attiva' => null,
-            'modalita_asta' => 'voce',
-            'durata_countdown_secondi' => 60,
-            'asta_tap_approvazione_admin' => true,
+            'fase_asta_corrente' => 'PRE_ASTA', 'crediti_iniziali_lega' => 500,
+            'num_portieri' => 3, 'num_difensori' => 8, 'num_centrocampisti' => 8, 'num_attaccanti' => 6,
+            'tag_lista_attiva' => null, 'modalita_asta' => 'voce',
+            'durata_countdown_secondi' => 60, 'asta_tap_approvazione_admin' => true,
+            'tipo_base_asta' => 'quotazione_iniziale',
+            'usa_ordine_chiamata' => false,
+            'prossimo_turno_chiamata_user_id' => null,
         ]);
         
         $numeroSquadre = User::where('is_admin', false)->count();
-        $numeroCalciatoriImportati = Calciatore::count(); // Potresti voler filtrare per il tag_lista_attiva qui
+        $numeroCalciatoriImportati = $impostazioniLega->tag_lista_attiva ?
+        Calciatore::where('tag_lista_inserimento', $impostazioniLega->tag_lista_attiva)->count() :
+        Calciatore::count();
         
         return view('admin.dashboard', compact(
-            'impostazioniLega', // <-- PASSA LA VARIABILE ALLA VISTA
-            'numeroSquadre',
-            'numeroCalciatoriImportati'
+            'impostazioniLega', 'numeroSquadre', 'numeroCalciatoriImportati'
             ));
     }
-    public function editUser(User $user) // Laravel inietterà l'istanza User grazie al Route Model Binding
+    
+    public function users(Request $request)
+    {
+        $utenti = User::orderBy('ordine_chiamata', 'asc')->orderBy('name', 'asc')->paginate(15);
+        return view('admin.users.index', compact('utenti'));
+    }
+    
+    public function editUser(User $user)
     {
         return view('admin.users.edit', compact('user'));
     }
-    
-    // In app/Http/Controllers/AdminController.php
     
     public function updateUser(Request $request, User $user)
     {
         $validatedData = $request->validate([
             'name' => ['required', 'string', 'max:255'],
-            'email' => ['required', 'string', 'email', 'max:255', \Illuminate\Validation\Rule::unique('users')->ignore($user->id)],
-            'crediti_iniziali_squadra' => ['required', 'integer', 'min:0'], // <-- MODIFICATO
+            'email' => ['required', 'string', 'email', 'max:255', Rule::unique('users')->ignore($user->id)],
+            'crediti_iniziali_squadra' => ['required', 'integer', 'min:0'],
             'crediti_rimanenti' => ['required', 'integer', 'min:0'],
             'is_admin' => ['nullable', 'boolean'],
             'password' => ['nullable', 'string', 'min:8', 'confirmed'],
+            'nome_proprietario' => ['nullable', 'string', 'max:255'],
+            'phone_number' => ['nullable', 'string', 'max:20'],
+            'ordine_chiamata' => ['nullable', 'integer', 'min:1', Rule::unique('users','ordine_chiamata')->ignore($user->id)],
         ]);
         
         $userData = [
             'name' => $validatedData['name'],
             'email' => $validatedData['email'],
-            'crediti_iniziali_squadra' => $validatedData['crediti_iniziali_squadra'], // <-- MODIFICATO
+            'crediti_iniziali_squadra' => $validatedData['crediti_iniziali_squadra'],
             'crediti_rimanenti' => $validatedData['crediti_rimanenti'],
-            'is_admin' => $request->has('is_admin') ? true : false,
+            'is_admin' => $request->boolean('is_admin'),
+            'nome_proprietario' => $validatedData['nome_proprietario'],
+            'phone_number' => $validatedData['phone_number'],
+            'ordine_chiamata' => $validatedData['ordine_chiamata'],
         ];
         
         if ($request->filled('password')) {
@@ -125,264 +127,408 @@ class AdminController extends Controller // O il nome del tuo controller
         }
         
         $user->update($userData);
-        
         return redirect()->route('admin.users.index')->with('success', 'Utente aggiornato con successo.');
-    }
-    
-    public function users(Request $request) // Potresti rinominarlo in indexUsers o manageUsers
-    {
-        // TODO: Aggiungere filtri se necessario (es. per nome squadra, solo non-admin)
-        $utenti = User::orderBy('name')->paginate(15); // Prendi tutti gli utenti, paginati
-        
-        return view('admin.users.index', compact('utenti')); // Cambiamo il nome della vista per chiarezza
-    }
-    
-    /**
-     * Mostra il form per importare i giocatori da CSV.
-     */
-    public function showImportForm()
-    {
-        // Passa eventuali dati aggiuntivi se necessario
-        return view('admin.giocatori.import');
-    }
-    
-    /**
-     * Gestisce il caricamento e l'importazione del file CSV dei giocatori.
-     */
-    public function handleImport(Request $request)
-    {
-        // 1. Validazione (solo file CSV)
-        $request->validate([
-            'csv_file' => ['required', 'file', 'mimes:csv,txt'],
-        ]);
-        
-        $file = $request->file('csv_file');
-        $filename = $file->getClientOriginalName();
-        $tag_lista = null;
-        $isAttivo = true; // Default a true
-        $importedCount = 0;
-        $errors = [];
-        
-        try {
-            // 2. Estrai il tag/stagione e lo stato attivo dal nome del file
-            if (preg_match('/Stagione_(\d{4}(?:_\d{2})?)/i', $filename, $matches)) {
-                $tag_lista = 'Stagione_' . $matches[1]; // Es. "Stagione_2024_25"
-            } else {
-                // Se il nome file non contiene un tag valido, genera errore
-                throw new Exception("Impossibile determinare la stagione/tag dal nome del file: $filename. Assicurati che contenga 'Stagione_YYYY_YY' o 'Stagione_YYYY'.");
-            }
-            
-            // Determina se i giocatori sono attivi basandosi sul nome file
-            if (str_contains(strtolower($filename), 'ceduti')) {
-                $isAttivo = false;
-            }
-            
-            // 3. Processa il CSV usando league/csv
-            $csv = Reader::createFromPath($file->getPathname(), 'r');
-            // !! VERIFICA IL DELIMITATORE DEL TUO FILE CSV !!
-            // Spesso in Italia è il punto e virgola (;) se esportato da Excel IT
-            $csv->setDelimiter(';');
-            $csv->setHeaderOffset(0); // La prima riga contiene le intestazioni
-            
-            $stmt = Statement::create(); // Opzionale: per elaborare i record
-            $records = $stmt->process($csv);
-            
-            // Opzionale: Inizia una transazione DB
-            // DB::beginTransaction();
-            
-            foreach ($records as $index => $record) {
-                $rowNumber = $index + 1; // Numero riga per messaggi di errore
-                try {
-                    // 4. Estrai e pulisci i dati
-                    $idEsterno = trim($record['ID'] ?? null); // Usa l'header esatto dal tuo CSV
-                    $ruolo = strtoupper(trim($record['R.'] ?? null));
-                    $nome = trim($record['Nome'] ?? null);
-                    $squadra = trim($record['Squadra'] ?? null);
-                    // Pulisci le quotazioni
-                    $qtIniziale = (int) preg_replace('/[^0-9]/', '', $record['Qt. I.'] ?? 0);
-                    $qtAttuale = (int) preg_replace('/[^0-9]/', '', $record['Qt. A.'] ?? 0); // Mappato su quotazione_attuale
-                    
-                    // 5. Validazione dati riga (Esempio base)
-                    if (empty($idEsterno) || empty($nome) || empty($ruolo) || empty($squadra) || !in_array($ruolo, ['P', 'D', 'C', 'A'])) {
-                        throw new Exception("Dati mancanti o ruolo non valido ($ruolo) alla riga $rowNumber");
-                    }
-                    
-                    // 6. Crea o aggiorna il record nel database
-                    Giocatore::updateOrCreate(
-                        [
-                            'id_esterno_giocatore' => $idEsterno,       // Chiave 1
-                            'tag_lista_inserimento' => $tag_lista,   // Chiave 2 (Stagione/Tag)
-                        ],
-                        [
-                            'nome_completo' => $nome,
-                            'ruolo' => $ruolo,
-                            'squadra_serie_a' => $squadra,
-                            'quotazione_iniziale' => $qtIniziale,
-                            'quotazione_attuale' => $qtAttuale,     // Dato aggiunto
-                            'attivo' => $isAttivo,                 // Stato basato sul filename
-                        ]
-                        );
-                    $importedCount++;
-                    
-                } catch (Exception $e) {
-                    // Registra l'errore per questa riga e continua (o interrompi)
-                    $errorMessage = "Errore alla riga $rowNumber: " . $e->getMessage();
-                    $errors[] = $errorMessage;
-                    Log::error("Errore import CSV ($filename): " . $errorMessage); // Logga l'errore
-                    // Se vuoi interrompere al primo errore:
-                    // DB::rollBack(); // Annulla transazione se usata
-                    // return redirect()->route('admin.giocatori.import.show')->with('error', $errorMessage);
-                }
-            } // Fine foreach
-            
-            // Opzionale: Conferma la transazione DB se tutto ok (o se gestisci errori per riga)
-            // DB::commit();
-            
-            // 7. Prepara messaggio di successo/errore e aggregato
-            $message = "Importazione per '$tag_lista' completata. $importedCount giocatori importati/aggiornati.";
-            if (!empty($errors)) {
-                // Riporta solo il numero di errori per non appesantire il messaggio flash
-                $message .= " Si sono verificati " . count($errors) . " errori (controlla i log per dettagli).";
-                // Potresti passare $errors alla vista se vuoi mostrarli tutti
-                // ->with('import_errors', $errors);
-            }
-            
-            // Calcola l'aggregato
-            $activePlayerCount = Giocatore::where('tag_lista_inserimento', $tag_lista)
-            ->where('attivo', true)
-            ->count();
-            $aggregateMessage = "Tag '$tag_lista': $activePlayerCount calciatori attivi.";
-            
-            return redirect()->route('admin.giocatori.import.show')
-            ->with('success', $message)
-            ->with('aggregate', $aggregateMessage);
-            
-            
-        } catch (Exception $e) {
-            // Errore generale (es. parsing filename, lettura file, transazione fallita)
-            // DB::rollBack(); // Annulla transazione se usata
-            Log::error("Errore generale import CSV ($filename): " . $e->getMessage());
-            return redirect()->route('admin.giocatori.import.show')
-            ->with('error', 'Errore durante l\'importazione: ' . $e->getMessage());
-        }
     }
     
     public function settings()
     {
-        // Carica la prima (e unica) riga di impostazioni. Creala con valori di default se non esiste.
-        $impostazioni = ImpostazioneLega::firstOrCreate(
-            [], // Nessuna condizione di ricerca, prende la prima o crea se vuota
-            [   // Valori di default SOLO se viene creata una nuova riga
-                'fase_asta_corrente' => 'PRE_ASTA',
-                'crediti_iniziali_lega' => 500,
-                'num_portieri' => 6,
-                'num_difensori' => 8,
-                'num_centrocampisti' => 8,
-                'num_attaccanti' => 6,
-                'tag_lista_attiva' => null,
-                'modalita_asta' => 'voce',
-                'durata_countdown_secondi' => 60,
-                'asta_tap_approvazione_admin' => true,
-            ]
-            );
-        
+        $impostazioni = ImpostazioneLega::firstOrFail();
         $fasiPossibili = [
-            'PRE_ASTA' => 'Pre-Asta (Chiusa)',
-            'P' => 'Portieri',
-            'D' => 'Difensori',
-            'C' => 'Centrocampisti',
-            'A' => 'Attaccanti',
-            'CONCLUSA' => 'Asta Conclusa'
+            'PRE_ASTA' => 'Pre-Asta (Chiusa)', 'P' => 'Portieri', 'D' => 'Difensori',
+            'C' => 'Centrocampisti', 'A' => 'Attaccanti', 'CONCLUSA' => 'Asta Conclusa'
         ];
-        
         $tagsCalciatoriDisponibili = Calciatore::select('tag_lista_inserimento')
-        ->whereNotNull('tag_lista_inserimento')
-        ->where('tag_lista_inserimento', '!=', '')
-        ->distinct()
-        ->orderBy('tag_lista_inserimento', 'desc')
-        ->pluck('tag_lista_inserimento');
+        ->whereNotNull('tag_lista_inserimento')->where('tag_lista_inserimento', '!=', '')
+        ->distinct()->orderBy('tag_lista_inserimento', 'desc')->pluck('tag_lista_inserimento');
         
-        // LA CHIAVE È QUI: assicurati che la variabile passata con compact sia 'impostazioni'
-        // se la vista usa $impostazioni->nome_campo
+        $utentiPerOrdineChiamata = User::orderBy('name')->get(['id', 'name']);
+        
         return view('admin.settings.index', compact(
-            'impostazioni', // <--- NOME CORRETTO DELLA VARIABILE
-            'fasiPossibili',
-            'tagsCalciatoriDisponibili'
+            'impostazioni', 'fasiPossibili', 'tagsCalciatoriDisponibili', 'utentiPerOrdineChiamata'
             ));
     }
     
     public function updateSettings(Request $request)
     {
-        $fasiAstaCheRichiedonoLista = ['P', 'D', 'C', 'A']; // Fasi in cui è necessaria una lista giocatori attiva
+        $fasiAstaCheRichiedonoLista = ['P', 'D', 'C', 'A'];
+        $impostazioni = ImpostazioneLega::firstOrFail();
+        $faseAstaPrecedenteDB = $impostazioni->fase_asta_corrente;
+        $tagListaAttivaDB = $impostazioni->tag_lista_attiva;
         
         $validatedData = $request->validate([
             'fase_asta_corrente' => ['required', 'string', Rule::in(['PRE_ASTA', 'P', 'D', 'C', 'A', 'CONCLUSA'])],
             'tag_lista_attiva' => [
-                // Obbligatorio se la fase_asta_corrente è P, D, C, o A
-                Rule::requiredIf(function () use ($request, $fasiAstaCheRichiedonoLista) {
-                    return in_array($request->input('fase_asta_corrente'), $fasiAstaCheRichiedonoLista);
-                }),
-                'nullable', // Altrimenti può essere nullo
-                'string',
-                'max:255'
-                    ],
-                    'modalita_asta' => ['required', 'string', Rule::in(['voce', 'tap'])],
-                    'durata_countdown_secondi' => ['required', 'integer', 'min:10', 'max:300'], // Min 10s, Max 5 minuti
-                    'asta_tap_approvazione_admin' => ['nullable', 'boolean'], // Gestito con $request->boolean() dopo
-                    'crediti_iniziali_lega' => ['required', 'integer', 'min:1', 'max:9999'], // Max crediti ragionevole
-                    'num_portieri' => ['required', 'integer', 'min:0', 'max:25'],
-                    'num_difensori' => ['required', 'integer', 'min:0', 'max:25'],
-                    'num_centrocampisti' => ['required', 'integer', 'min:0', 'max:25'],
-                    'num_attaccanti' => ['required', 'integer', 'min:0', 'max:25'],
-                    'reset_asta_completo' => ['nullable', 'boolean'], // Checkbox per il reset
-                    ]);
+                Rule::requiredIf(fn() => in_array($request->input('fase_asta_corrente'), $fasiAstaCheRichiedonoLista)),
+                'nullable', 'string', 'max:255'
+            ],
+            'modalita_asta' => ['required', 'string', Rule::in(['voce', 'tap'])],
+            'durata_countdown_secondi' => ['required', 'integer', 'min:10', 'max:300'],
+            'asta_tap_approvazione_admin' => ['nullable', 'boolean'],
+            'crediti_iniziali_lega' => ['required', 'integer', 'min:1', 'max:9999'],
+            'num_portieri' => ['required', 'integer', 'min:0', 'max:25'],
+            'num_difensori' => ['required', 'integer', 'min:0', 'max:25'],
+            'num_centrocampisti' => ['required', 'integer', 'min:0', 'max:25'],
+            'num_attaccanti' => ['required', 'integer', 'min:0', 'max:25'],
+            'reset_asta_completo' => ['nullable', 'boolean'],
+            'tipo_base_asta' => ['required', Rule::in(['quotazione_iniziale', 'credito_singolo'])],
+            'usa_ordine_chiamata' => ['nullable', 'boolean'],
+            'prossimo_turno_chiamata_user_id' => ['nullable', 'exists:users,id'],
+        ]);
         
-        // Recupera l'unica riga di impostazioni o creala se non esiste
-        $impostazioni = ImpostazioneLega::firstOrFail(); // Dovrebbe esistere grazie a firstOrCreate nel metodo settings()
+        $nuovaFaseAstaRichiesta = $validatedData['fase_asta_corrente'];
         
-        // Prepara l'array dei dati da aggiornare, gestendo i booleani dai checkbox
-        $datiDaAggiornare = $validatedData;
-        $datiDaAggiornare['asta_tap_approvazione_admin'] = $request->boolean('asta_tap_approvazione_admin');
-        // Il campo 'reset_asta_completo' non va salvato nel DB, lo usiamo solo per la logica qui sotto
+        // Controllo avanzamento fase
+        $mappaRuoliPrecedenti = ['D' => 'P', 'C' => 'D', 'A' => 'C'];
+        $ruoloDaCompletare = $mappaRuoliPrecedenti[$nuovaFaseAstaRichiesta] ?? null;
         
-        $messaggioSuccesso = 'Impostazioni dell\'asta aggiornate con successo.';
-        
-        // Logica di RESET ASTA COMPLETA se il checkbox è stato selezionato
-        if ($request->boolean('reset_asta_completo')) {
-            // Controllo di sicurezza aggiuntivo: se si resetta, tag_lista_attiva deve essere presente
-            // perché la fase verrà forzata a 'P'.
-            if (empty($validatedData['tag_lista_attiva'])) {
-                return redirect()->route('admin.settings.index')
-                ->withInput() // Mantiene i dati del form per correzione
-                ->withErrors(['tag_lista_attiva' => 'Quando si prepara una nuova asta completa (reset), è obbligatorio selezionare un "Tag Lista Calciatori Attiva".']);
+        if ($ruoloDaCompletare && $faseAstaPrecedenteDB === $ruoloDaCompletare) {
+            Log::info("Controllo avanzamento fase da {$faseAstaPrecedenteDB} a {$nuovaFaseAstaRichiesta}. Controllo reparto {$ruoloDaCompletare} con tag '{$tagListaAttivaDB}'.");
+            $limiteRuolo = match ($ruoloDaCompletare) {
+                'P' => $impostazioni->num_portieri, 'D' => $impostazioni->num_difensori,
+                'C' => $impostazioni->num_centrocampisti, default => 0,
+            };
+            
+            if ($limiteRuolo > 0) {
+                $squadreDaControllare = User::all();
+                $squadreIncomplete = [];
+                foreach ($squadreDaControllare as $squadra) {
+                    $conteggioGiocatoriRuolo = GiocatoreAcquistato::where('user_id', $squadra->id)
+                    ->whereHas('calciatore', function ($query) use ($ruoloDaCompletare, $tagListaAttivaDB) {
+                        $query->where('ruolo', $ruoloDaCompletare);
+                        if ($tagListaAttivaDB) {
+                            $query->where('tag_lista_inserimento', $tagListaAttivaDB);
+                        }
+                    })->count();
+                    if ($conteggioGiocatoriRuolo < $limiteRuolo) {
+                        $squadreIncomplete[] = "{$squadra->name} ({$conteggioGiocatoriRuolo}/{$limiteRuolo} {$ruoloDaCompletare})";
+                    }
+                }
+                if (!empty($squadreIncomplete)) {
+                    $elenco = implode(', ', $squadreIncomplete);
+                    return redirect()->route('admin.settings.index')->withInput()
+                    ->with('error', "Impossibile cambiare fase. Squadre incomplete per reparto {$ruoloDaCompletare} (lista '{$tagListaAttivaDB}'): {$elenco}.");
+                }
             }
-            
-            $creditiDaAssegnare = $validatedData['crediti_iniziali_lega'];
-            
-            // 1. Resetta i crediti di TUTTE le squadre (inclusi admin che partecipano)
-            User::query()->update([
-                'crediti_iniziali_squadra' => $creditiDaAssegnare,
-                'crediti_rimanenti' => $creditiDaAssegnare,
-            ]);
-            Log::info("Crediti resettati per tutte le squadre a: $creditiDaAssegnare, Admin ID: " . auth()->id());
-            
-            // 2. Svuota la tabella giocatori_acquistati (reset globale delle rose)
-            GiocatoreAcquistato::query()->delete();
-            Log::info("Tabella giocatori_acquistati svuotata, Admin ID: " . auth()->id());
-            
-            // 3. Imposta la fase a Portieri (P)
-            $datiDaAggiornare['fase_asta_corrente'] = 'P';
-            
-            Log::info("Admin (ID: " . auth()->id() . ") ha eseguito un RESET ASTA COMPLETO. Tag lista attiva: " . $validatedData['tag_lista_attiva'] . ".");
-            $messaggioSuccesso = 'IMPOSTAZIONI AGGIORNATE. NUOVA ASTA PREPARATA: Crediti squadre resettati, rose svuotate e fase impostata a Portieri!';
         }
         
-        // Rimuovi 'reset_asta_completo' dai dati da aggiornare perché non è una colonna del DB
-        unset($datiDaAggiornare['reset_asta_completo']);
+        $datiDaAggiornare = $validatedData;
+        $datiDaAggiornare['asta_tap_approvazione_admin'] = $request->boolean('asta_tap_approvazione_admin');
+        $datiDaAggiornare['usa_ordine_chiamata'] = $request->boolean('usa_ordine_chiamata');
+        $messaggioSuccesso = 'Impostazioni aggiornate.';
         
-        // Aggiorna le impostazioni della lega
+        if ($request->boolean('reset_asta_completo')) {
+            if (empty($validatedData['tag_lista_attiva'])) {
+                return redirect()->route('admin.settings.index')->withInput()
+                ->withErrors(['tag_lista_attiva' => 'Per il reset, selezionare un "Tag Lista Calciatori Attiva".']);
+            }
+            if ($datiDaAggiornare['fase_asta_corrente'] !== 'P') {
+                $datiDaAggiornare['fase_asta_corrente'] = 'P';
+            }
+            $crediti = $validatedData['crediti_iniziali_lega'];
+            User::query()->update(['crediti_iniziali_squadra' => $crediti, 'crediti_rimanenti' => $crediti]);
+            GiocatoreAcquistato::query()->delete();
+            ChiamataAsta::whereIn('stato_chiamata', ['in_attesa_admin', 'in_asta_tap_live'])
+            ->update(['stato_chiamata' => 'annullata_admin', 'timestamp_fine_tap_prevista' => null]);
+            
+            if ($datiDaAggiornare['usa_ordine_chiamata']) {
+                $primoChiamante = User::orderBy('ordine_chiamata', 'asc')
+                ->orderBy('id', 'asc')
+                ->first(); // Potrebbe essere admin se partecipa e ha ordine basso
+                $datiDaAggiornare['prossimo_turno_chiamata_user_id'] = $primoChiamante ? $primoChiamante->id : null;
+            } else {
+                $datiDaAggiornare['prossimo_turno_chiamata_user_id'] = null;
+            }
+            
+            Log::info("Admin (ID: ".Auth::id().") RESET ASTA COMPLETO. Tag: {$validatedData['tag_lista_attiva']}. Fase: P.");
+            $messaggioSuccesso = 'ASTA RESETTATA: Crediti e rose azzerati, chiamate TAP annullate, fase impostata a Portieri!';
+        }
+        // Se non c'è reset, e si abilita l'ordine di chiamata per la prima volta o si cambia,
+        // potrebbe essere necessario inizializzare prossimo_turno_chiamata_user_id se è null.
+        elseif ($datiDaAggiornare['usa_ordine_chiamata'] && is_null($impostazioni->prossimo_turno_chiamata_user_id)) {
+            $primoChiamante = User::orderBy('ordine_chiamata', 'asc')
+            ->orderBy('id', 'asc')
+            ->first();
+            $datiDaAggiornare['prossimo_turno_chiamata_user_id'] = $primoChiamante ? $primoChiamante->id : null;
+        } elseif (!$datiDaAggiornare['usa_ordine_chiamata']) {
+            $datiDaAggiornare['prossimo_turno_chiamata_user_id'] = null; // Disabilita il turno
+        }
+        
+        
+        unset($datiDaAggiornare['reset_asta_completo']);
         $impostazioni->update($datiDaAggiornare);
         
         return redirect()->route('admin.settings.index')->with('success', $messaggioSuccesso);
+    }
+    
+    // Metodi che erano in AdminRosterController
+    public function visualizzaRoseSquadre()
+    {
+        $squadre = User::with(['giocatoriAcquistati.calciatore'])
+        ->orderBy('name')
+        ->get();
+        
+        $impostazioniLega = ImpostazioneLega::first(); // Può essere null se non ancora creata
+        $limitiRuoli = null;
+        $tagListaAttiva = $impostazioniLega ? $impostazioniLega->tag_lista_attiva : null;
+        
+        if ($impostazioniLega) {
+            $limitiRuoli = [
+                'P' => $impostazioniLega->num_portieri, 'D' => $impostazioniLega->num_difensori,
+                'C' => $impostazioniLega->num_centrocampisti, 'A' => $impostazioniLega->num_attaccanti,
+            ];
+        }
+        
+        $squadreConDettagli = $squadre->map(function ($squadra) use ($limitiRuoli, $tagListaAttiva) {
+            $rosa = $squadra->giocatoriAcquistati->filter(function ($acquisto) use ($tagListaAttiva) {
+                return $tagListaAttiva ? (optional($acquisto->calciatore)->tag_lista_inserimento === $tagListaAttiva) : true;
+            });
+                $costoTotaleRosa = $rosa->sum('prezzo_acquisto');
+                $conteggioRuoliEffettivo = collect();
+                if ($rosa->isNotEmpty()) {
+                    $idsCalciatoriFiltrati = $rosa->pluck('calciatore_id')->unique()->toArray();
+                    if(!empty($idsCalciatoriFiltrati)){
+                        $queryRuoli = Calciatore::whereIn('id', $idsCalciatoriFiltrati);
+                        if ($tagListaAttiva) { $queryRuoli->where('tag_lista_inserimento', $tagListaAttiva); }
+                        $conteggioRuoliEffettivo = $queryRuoli->pluck('ruolo')->countBy();
+                    }
+                }
+                return [
+                    'id' => $squadra->id, 'name' => $squadra->name, 'is_admin' => $squadra->is_admin,
+                    'crediti_iniziali_squadra' => $squadra->crediti_iniziali_squadra,
+                    'crediti_rimanenti' => $squadra->crediti_rimanenti,
+                    'costo_totale_rosa' => $costoTotaleRosa, 'rosa_giocatori' => $rosa,
+                    'conteggio_ruoli' => $conteggioRuoliEffettivo, 'limiti_ruoli' => $limitiRuoli,
+                    'numero_giocatori_in_rosa' => $rosa->count()
+                ];
+        });
+            return view('admin.rose.squadre', compact('squadreConDettagli'));
+    }
+    
+    public function showAssegnaForm(Request $request)
+    {
+        $squadre = User::orderBy('name')->get();
+        $impostazioniLega = ImpostazioneLega::firstOrFail();
+        $faseAstaCorrente = $impostazioniLega->fase_asta_corrente;
+        $tagAttivo = $impostazioniLega->tag_lista_attiva;
+        $ruoloDaFiltrare = in_array($faseAstaCorrente, ['P', 'D', 'C', 'A']) ? $faseAstaCorrente : null;
+        
+        $ruoliDisponibiliQuery = Calciatore::where('attivo', true);
+        if ($tagAttivo) { $ruoliDisponibiliQuery->where('tag_lista_inserimento', $tagAttivo); }
+        $ruoliDisponibili = $ruoliDisponibiliQuery->select('ruolo')->distinct()->orderByRaw("FIELD(ruolo, 'P', 'D', 'C', 'A')")->pluck('ruolo');
+        
+        $idsCalciatoriGiaAcquistatiQuery = GiocatoreAcquistato::query();
+        if($tagAttivo){
+            $idsCalciatoriGiaAcquistatiQuery->whereHas('calciatore', function($q) use ($tagAttivo){
+                $q->where('tag_lista_inserimento', $tagAttivo);
+            });
+        }
+        $idsCalciatoriGiaAcquistati = $idsCalciatoriGiaAcquistatiQuery->pluck('calciatore_id')->all();
+        
+        return view('admin.giocatori.assegna', compact(
+            'squadre', 'ruoliDisponibili', 'idsCalciatoriGiaAcquistati',
+            'ruoloDaFiltrare', 'tagAttivo', 'faseAstaCorrente'
+            ));
+    }
+    
+    public function handleAssegna(Request $request)
+    {
+        $impostazioniLega = ImpostazioneLega::firstOrFail(); // Per tipo_base_asta e tag_lista_attiva
+        $calciatore = Calciatore::find($request->input('calciatore_id'));
+        $baseAstaMinima = 1;
+        if ($calciatore && $impostazioniLega->tipo_base_asta === 'quotazione_iniziale') {
+            $baseAstaMinima = $calciatore->quotazione_iniziale > 0 ? $calciatore->quotazione_iniziale : 1;
+        }
+        
+        $validatedData = $request->validate([
+            'user_id' => ['required', 'exists:users,id'],
+            'calciatore_id' => ['required', 'exists:calciatori,id'],
+            'prezzo_acquisto' => ['required', 'integer', 'min:' . $baseAstaMinima],
+        ]);
+        
+        $squadra = User::findOrFail($validatedData['user_id']);
+        // $calciatore è già stato caricato per $baseAstaMinima, se esiste
+        if(!$calciatore) $calciatore = Calciatore::findOrFail($validatedData['calciatore_id']);
+        $prezzoAcquisto = (int)$validatedData['prezzo_acquisto'];
+        
+        $faseAstaCorrente = $impostazioniLega->fase_asta_corrente;
+        $tagAttivo = $impostazioniLega->tag_lista_attiva;
+        
+        DB::beginTransaction();
+        try {
+            if (in_array($faseAstaCorrente, ['P', 'D', 'C', 'A'])) {
+                if ($calciatore->ruolo !== $faseAstaCorrente) {
+                    throw new Exception("Non puoi assegnare un {$calciatore->ruolo} durante la fase {$faseAstaCorrente}.");
+                }
+                // TODO: Aggiungere controllo completamento reparti precedenti per la squadra
+            } elseif (in_array($faseAstaCorrente, ['PRE_ASTA', 'CONCLUSA'])) {
+                Log::info("Admin assegna manualmente fuori fase: Fase {$faseAstaCorrente}. Admin ID: " . Auth::id());
+            }
+            
+            $giaAcquistatoQuery = GiocatoreAcquistato::where('calciatore_id', $calciatore->id);
+            if ($tagAttivo) {
+                $giaAcquistatoQuery->whereHas('calciatore', function($q) use ($tagAttivo){
+                    $q->where('tag_lista_inserimento', $tagAttivo);
+                });
+            }
+            if ($giaAcquistatoQuery->exists()) {
+                throw new Exception("{$calciatore->nome_completo} è già stato acquistato (tag: {$tagAttivo}).");
+            }
+            if ($squadra->crediti_rimanenti < $prezzoAcquisto) {
+                throw new Exception("{$squadra->name} non ha crediti (Disponibili: {$squadra->crediti_rimanenti}, Richiesti: {$prezzoAcquisto}).");
+            }
+            
+            // Conteggio e limiti rosa (come in gestisciRilancioTap)
+            $rosaAttualeQuery = GiocatoreAcquistato::where('user_id', $squadra->id);
+            if ($tagAttivo) { $rosaAttualeQuery->whereHas('calciatore', fn($q) => $q->where('tag_lista_inserimento', $tagAttivo)); }
+            $rosaAttuale = $rosaAttualeQuery->get();
+            $conteggioRuoli = collect();
+            if ($rosaAttuale->isNotEmpty()) {
+                $idsInRosa = $rosaAttuale->pluck('calciatore_id')->unique()->toArray();
+                if(!empty($idsInRosa)){
+                    $qRuoli = Calciatore::whereIn('id', $idsInRosa);
+                    if($tagAttivo) $qRuoli->where('tag_lista_inserimento', $tagAttivo);
+                    $conteggioRuoli = $qRuoli->pluck('ruolo')->countBy();
+                }
+            }
+            $numGiocatoriAttuali = $rosaAttuale->count();
+            $limiteSistema = array_sum([$impostazioniLega->num_portieri, $impostazioniLega->num_difensori, $impostazioniLega->num_centrocampisti, $impostazioniLega->num_attaccanti]);
+            $limiteRuoloSpec = match ($calciatore->ruolo) { 'P' => $impostazioniLega->num_portieri, 'D' => $impostazioniLega->num_difensori, 'C' => $impostazioniLega->num_centrocampisti, 'A' => $impostazioniLega->num_attaccanti, default => 0 };
+            
+            if (($numGiocatoriAttuali + 1) > $limiteSistema && $limiteSistema > 0) throw new Exception("Superato limite rosa ({$limiteSistema}).");
+            if ((($conteggioRuoli[$calciatore->ruolo] ?? 0) + 1) > $limiteRuoloSpec && $limiteRuoloSpec > 0) throw new Exception("Superato limite per ruolo {$calciatore->ruolo} ({$limiteRuoloSpec}).");
+            
+            $creditiDopo = $squadra->crediti_rimanenti - $prezzoAcquisto;
+            $slotDopo = $limiteSistema - ($numGiocatoriAttuali + 1);
+            if ($slotDopo > 0 && $creditiDopo < $slotDopo) throw new Exception("Crediti insufficienti per completare la rosa dopo questo acquisto.");
+            
+            GiocatoreAcquistato::create([
+                'user_id' => $squadra->id, 'calciatore_id' => $calciatore->id,
+                'prezzo_acquisto' => $prezzoAcquisto, 'ruolo_al_momento_acquisto' => $calciatore->ruolo,
+            ]);
+            $squadra->crediti_rimanenti -= $prezzoAcquisto;
+            $squadra->save();
+            DB::commit();
+            
+            // TODO: ORDINE CHIAMATA: if ($impostazioniLega->usa_ordine_chiamata && $impostazioniLega->modalita_asta === 'tap') { $impostazioniLega->avanzaTurnoChiamata($squadra->id); }
+            // L'avanzamento turno per assegnazione manuale è da decidere se influisce sul turno TAP
+            
+            return redirect()->route('admin.giocatori.assegna.show')->with('success', "{$calciatore->nome_completo} assegnato a {$squadra->name} per {$prezzoAcquisto} cr.");
+        } catch (Exception $e) {
+            DB::rollBack();
+            return redirect()->route('admin.giocatori.assegna.show')->withInput()->with('error', $e->getMessage());
+        }
+    }
+    
+    public function autocompleteGiocatori(Request $request)
+    {
+        $searchTerm = $request->input('q', '');
+        $ruoloFiltroSpecifico = $request->input('ruolo', '');
+        $impostazioniLega = ImpostazioneLega::firstOrFail();
+        $faseAstaCorrente = $impostazioniLega->fase_asta_corrente;
+        $tagAttivo = $impostazioniLega->tag_lista_attiva;
+        $query = Calciatore::where('attivo', true);
+        if ($tagAttivo) { $query->where('tag_lista_inserimento', $tagAttivo); }
+        $ruoloQuery = in_array($faseAstaCorrente, ['P', 'D', 'C', 'A']) ? $faseAstaCorrente : ($ruoloFiltroSpecifico ?: null);
+        if ($ruoloQuery) { $query->where('ruolo', $ruoloQuery); }
+        if (!empty($searchTerm)) {
+            $query->where(fn($q) => $q->whereRaw('LOWER(nome_completo) LIKE ?', ["%".strtolower($searchTerm)."%"])
+                ->orWhereRaw('LOWER(squadra_serie_a) LIKE ?', ["%".strtolower($searchTerm)."%"]));
+        }
+        $idsAcquistatiQuery = GiocatoreAcquistato::query();
+        if($tagAttivo){ $idsAcquistatiQuery->whereHas('calciatore', fn($q) => $q->where('tag_lista_inserimento', $tagAttivo)); }
+        $idsCalciatoriAcquistati = $idsAcquistatiQuery->pluck('calciatore_id')->all();
+        if (!empty($idsCalciatoriAcquistati)) { $query->whereNotIn('calciatori.id', $idsCalciatoriAcquistati); }
+        
+        $calciatori = $query->select('id', 'nome_completo', 'ruolo', 'squadra_serie_a', 'quotazione_iniziale')
+        ->orderBy('nome_completo')->limit(20)->get();
+        $formattedCalciatori = $calciatori->map(function ($c) use ($impostazioniLega) {
+            $base = ($impostazioniLega->tipo_base_asta === 'credito_singolo') ? 1 : ($c->quotazione_iniziale > 0 ? $c->quotazione_iniziale : 1);
+            return ['value' => $c->id, 'text' => "{$c->nome_completo} ({$c->ruolo} - {$c->squadra_serie_a} - Base: {$base})"];
+        });
+            return response()->json($formattedCalciatori);
+    }
+    
+    public function gestioneChiamateAsta()
+    {
+        $impostazioniLega = ImpostazioneLega::firstOrFail();
+        $chiamateInAttesa = ChiamataAsta::where('stato_chiamata', 'in_attesa_admin')
+        ->with(['calciatore', 'utenteChiamante'])
+        ->orderBy('created_at', 'asc')->get();
+        $astaTapLiveEsistente = ChiamataAsta::where('stato_chiamata', 'in_asta_tap_live')->exists();
+        return view('admin.asta.chiamate', compact('chiamateInAttesa', 'impostazioniLega', 'astaTapLiveEsistente'));
+    }
+    
+    public function avviaAstaTap(Request $request, ChiamataAsta $chiamataAsta)
+    {
+        $impostazioniLega = ImpostazioneLega::firstOrFail();
+        if ($impostazioniLega->modalita_asta !== 'tap' || !$impostazioniLega->asta_tap_approvazione_admin) {
+            return redirect()->route('admin.asta.chiamate.gestione')->with('error', 'Modalità asta o approvazione non corrette.');
+        }
+        if ($chiamataAsta->stato_chiamata !== 'in_attesa_admin') {
+            return redirect()->route('admin.asta.chiamate.gestione')->with('error', "Chiamata per {$chiamataAsta->calciatore->nome_completo} non più in attesa.");
+        }
+        if (ChiamataAsta::where('stato_chiamata', 'in_asta_tap_live')->where('id', '!=', $chiamataAsta->id)->exists()) {
+            return redirect()->route('admin.asta.chiamate.gestione')->with('error', 'Altra asta TAP in corso.');
+        }
+        if ($chiamataAsta->calciatore->ruolo !== $impostazioniLega->fase_asta_corrente) {
+            return redirect()->route('admin.asta.chiamate.gestione')->with('error', "Ruolo giocatore ({$chiamataAsta->calciatore->ruolo}) non corrisponde alla fase ({$impostazioniLega->fase_asta_corrente}).");
+        }
+        
+        $utenteChiamante = User::find($chiamataAsta->user_id_chiamante);
+        $baseAstaEffettiva = ($impostazioniLega->tipo_base_asta === 'credito_singolo') ? 1 : (optional($chiamataAsta->calciatore)->quotazione_iniziale > 0 ? $chiamataAsta->calciatore->quotazione_iniziale : 1);
+        
+        if (!$utenteChiamante) {
+            $chiamataAsta->update(['stato_chiamata' => 'annullata_admin', 'timestamp_fine_tap_prevista' => null]);
+            return redirect()->route('admin.asta.chiamate.gestione')->with('error', "Utente chiamante non trovato. Chiamata per {$chiamataAsta->calciatore->nome_completo} annullata.");
+        }
+        if ($utenteChiamante->crediti_rimanenti < $baseAstaEffettiva) {
+            $chiamataAsta->update(['stato_chiamata' => 'annullata_admin', 'timestamp_fine_tap_prevista' => null]);
+            return redirect()->route('admin.asta.chiamate.gestione')->with('error', "{$utenteChiamante->name} non ha crediti ({$utenteChiamante->crediti_rimanenti}) per base asta {$baseAstaEffettiva} per {$chiamataAsta->calciatore->nome_completo}. Chiamata annullata.");
+        }
+        
+        try {
+            DB::beginTransaction();
+            $chiamataAsta->update([
+                'stato_chiamata' => 'in_asta_tap_live', 'prezzo_partenza_tap' => $baseAstaEffettiva,
+                'prezzo_attuale_tap' => $baseAstaEffettiva, 'miglior_offerente_tap_id' => $chiamataAsta->user_id_chiamante,
+                'timestamp_fine_tap_prevista' => Carbon::now()->addSeconds($impostazioniLega->durata_countdown_secondi),
+            ]);
+            DB::commit();
+            Log::info("Admin ".Auth::id()." avvia Asta TAP per {$chiamataAsta->calciatore->nome_completo} (ID: {$chiamataAsta->id}). Base: {$baseAstaEffettiva}. Fine: {$chiamataAsta->timestamp_fine_tap_prevista}");
+            // TODO: ORDINE CHIAMATA: if ($impostazioniLega->usa_ordine_chiamata) { $impostazioniLega->avanzaTurnoChiamata($chiamataAsta->user_id_chiamante); }
+            return redirect()->route('admin.asta.chiamate.gestione')->with('success', "Asta TAP per {$chiamataAsta->calciatore->nome_completo} avviata! Base: {$baseAstaEffettiva}.");
+        } catch (Exception $e) {
+            DB::rollBack();
+            Log::error("Errore avvio asta TAP admin per Chiamata ID {$chiamataAsta->id}: " . $e->getMessage());
+            return redirect()->route('admin.asta.chiamate.gestione')->with('error', 'Errore tecnico avvio asta: ' . $e->getMessage());
+        }
+    }
+    
+    public function annullaChiamataTap(Request $request, ChiamataAsta $chiamataAsta)
+    {
+        if (!in_array($chiamataAsta->stato_chiamata, ['in_attesa_admin', 'in_asta_tap_live'])) {
+            return redirect()->route('admin.asta.chiamate.gestione')->with('error', 'Chiamata/Asta non annullabile (stato: ' . $chiamataAsta->stato_chiamata . ').');
+        }
+        $utenteChiamanteOriginaleId = $chiamataAsta->user_id_chiamante;
+        try {
+            DB::beginTransaction();
+            $chiamataAsta->update([
+                'stato_chiamata' => 'annullata_admin',
+                'timestamp_fine_tap_prevista' => null,
+                'miglior_offerente_tap_id' => null
+            ]);
+            DB::commit();
+            Log::info("Admin ".Auth::id()." annulla Chiamata/Asta TAP ID {$chiamataAsta->id} per {$chiamataAsta->calciatore->nome_completo}.");
+            // TODO: ORDINE CHIAMATA:
+            // $impostazioniLega = ImpostazioneLega::firstOrFail();
+            // if ($impostazioniLega->usa_ordine_chiamata) {
+            //     $impostazioniLega->avanzaTurnoChiamata($utenteChiamanteOriginaleId);
+            // }
+            return redirect()->route('admin.asta.chiamate.gestione')->with('success', "Chiamata/Asta per {$chiamataAsta->calciatore->nome_completo} annullata.");
+        } catch (Exception $e) {
+            DB::rollBack();
+            Log::error("Errore annullamento chiamata/asta TAP ID {$chiamataAsta->id}: " . $e->getMessage());
+            return redirect()->route('admin.asta.chiamate.gestione')->with('error', 'Errore tecnico annullamento.');
+        }
     }
 }

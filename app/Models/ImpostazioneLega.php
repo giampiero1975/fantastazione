@@ -13,20 +13,21 @@ class ImpostazioneLega extends Model
     
     protected $fillable = [
         'fase_asta_corrente',
-        'calciatore_attuale_in_asta_id', // Se ancora rilevante qui
-        'prossimo_turno_chiamata_user_id', // Se ancora rilevante qui
+        'prossimo_turno_chiamata_user_id',
         'crediti_iniziali_lega',
         'num_portieri',
         'num_difensori',
         'num_centrocampisti',
         'num_attaccanti',
-        'tag_lista_attiva',             // NUOVO
-        'modalita_asta',                // NUOVO
-        'durata_countdown_secondi',     // NUOVO
-        'asta_tap_approvazione_admin',  // NUOVO
+        'tag_lista_attiva',
+        'modalita_asta',
+        'durata_countdown_secondi',
+        'asta_tap_approvazione_admin',
+        'usa_ordine_chiamata',          // NUOVO
+        'tipo_base_asta',               // NUOVO
     ];
     
-    protected function casts(): array // O protected $casts = [...]
+    protected function casts(): array
     {
         return [
             'crediti_iniziali_lega' => 'integer',
@@ -34,14 +35,21 @@ class ImpostazioneLega extends Model
             'num_difensori' => 'integer',
             'num_centrocampisti' => 'integer',
             'num_attaccanti' => 'integer',
-            'durata_countdown_secondi' => 'integer',    // NUOVO
-            'asta_tap_approvazione_admin' => 'boolean', // NUOVO
-            // fase_asta_corrente e modalita_asta sono ENUM, Laravel li gestisce come stringhe
+            'durata_countdown_secondi' => 'integer',
+            'asta_tap_approvazione_admin' => 'boolean',
+            'usa_ordine_chiamata' => 'boolean', // NUOVO
+            // 'tipo_base_asta' è un ENUM, Laravel lo gestisce come stringa
         ];
     }
+    // Vecchia sintassi per $casts:
+    // protected $casts = [
+    //     'crediti_iniziali_lega' => 'integer',
+    //     'num_portieri' => 'integer',
+    //     // ... altri cast esistenti ...
+    //     'asta_tap_approvazione_admin' => 'boolean',
+    //     'usa_ordine_chiamata' => 'boolean', // NUOVO
+    // ];
     
-    // Relazioni se necessarie (quelle per calciatore_attuale_in_asta_id e prossimo_turno_chiamata_user_id
-    // potrebbero essere rimosse da qui se spostiamo quella logica interamente in chiamate_asta per il TAP)
     public function calciatoreAttuale()
     {
         return $this->belongsTo(Calciatore::class, 'calciatore_attuale_in_asta_id');

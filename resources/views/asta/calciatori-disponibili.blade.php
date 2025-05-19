@@ -15,17 +15,32 @@
     <div class="py-12">
         <div class="max-w-7xl mx-auto sm:px-6 lg:px-8">
 
-            @if (session('success'))
-                <div class="mb-4 p-4 font-medium text-sm text-green-700 bg-green-100 dark:bg-green-800 dark:text-green-200 rounded-md">
-                    {{ session('success') }}
-                </div>
-            @endif
-            @if (session('error'))
-                <div class="mb-4 p-4 font-medium text-sm text-red-700 bg-red-100 dark:bg-red-800 dark:text-red-200 rounded-md">
-                    {{ session('error') }}
-                </div>
-            @endif
+            {{-- Blocco Standard per Messaggi Flash --}}
+            <div class="mb-6"> {{-- Contenitore per i messaggi così sono raggruppati --}}
+                @if (session('success'))
+                    <div class="p-4 font-medium text-sm text-green-700 bg-green-100 dark:bg-green-800 dark:text-green-200 rounded-md">
+                        {{ session('success') }}
+                    </div>
+                @endif
+                @if (session('error'))
+                    <div class="p-4 font-medium text-sm text-red-700 bg-red-100 dark:bg-red-800 dark:text-red-200 rounded-md">
+                        {{ session('error') }}
+                    </div>
+                @endif
+                {{-- Puoi aggiungere qui anche il blocco per $errors->any() se lo usi per errori di validazione del form --}}
+                @if ($errors->any())
+                    <div class="mt-2 p-4 font-medium text-sm text-red-700 bg-red-100 dark:bg-red-800 dark:text-red-200 rounded-md">
+                        <strong>{{ __('Attenzione!') }}</strong>
+                        <ul class="list-disc list-inside mt-1">
+                            @foreach ($errors->all() as $error)
+                                <li>{{ $error }}</li>
+                            @endforeach
+                        </ul>
+                    </div>
+                @endif
+            </div>
 
+            {{-- Messaggio specifico dal controller (es. asta non in fase corretta) --}}
             @if (isset($messaggio) && $messaggio)
                 <div class="bg-yellow-100 dark:bg-yellow-800 border-l-4 border-yellow-500 dark:border-yellow-400 text-yellow-700 dark:text-yellow-200 p-4 mb-6 shadow-sm sm:rounded-lg" role="alert">
                     <p class="font-bold">{{ __('Attenzione') }}</p>
@@ -33,6 +48,7 @@
                 </div>
             @endif
 
+            {{-- Form Filtri e Tabella Calciatori (solo se non c'è un messaggio di blocco e ci sono calciatori) --}}
             @if (!isset($messaggio) && isset($calciatori) && $calciatori->isNotEmpty())
                 <div class="bg-white dark:bg-gray-800 overflow-hidden shadow-sm sm:rounded-lg p-4 mb-6">
                     <form method="GET" action="{{ route('asta.calciatori.disponibili') }}" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 items-end">
@@ -51,7 +67,7 @@
                                 @endif
                             </select>
                         </div>
-                        <div class="flex items-center pt-5">
+                        <div class="flex items-center pt-5"> {{-- Allineamento verticale per i pulsanti --}}
                             <x-primary-button type="submit">
                                 {{ __('Filtra') }}
                             </x-primary-button>
@@ -83,32 +99,32 @@
                                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{{ $calciatore->squadra_serie_a }}</td>
                                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{{ $calciatore->quotazione_iniziale }}</td>
                                             <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
-<td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
-    @if(isset($impostazioniLega) && $impostazioniLega->modalita_asta === 'tap' && in_array($impostazioniLega->fase_asta_corrente, ['P','D','C','A']))
-        <form method="POST" action="{{ route('asta.registra.chiamata', $calciatore->id) }}">
-            @csrf
-            @php
-                // Determina se il pulsante deve essere disabilitato e quale title mostrare
-                // La variabile $chiamataTapPossibile deve essere passata dal controller
-                $isButtonDisabled = (isset($chiamataTapPossibile) && !$chiamataTapPossibile);
-                $buttonTitle = $isButtonDisabled ? 
-                                __('C\'è già un giocatore chiamato o un\'asta TAP in corso.') : 
-                                __('Chiama questo giocatore per l\'asta TAP');
-            @endphp
-            <button type="submit" class="inline-flex items-center px-4 py-2 bg-green-500 border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-green-600 active:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800 transition ease-in-out duration-150 {{ (isset($chiamataTapPossibile) && !$chiamataTapPossibile) ? 'opacity-50 cursor-not-allowed' : '' }}"
-    			{{ (isset($chiamataTapPossibile) && !$chiamataTapPossibile) ? 'disabled' : '' }}
-    			title="{{ (isset($chiamataTapPossibile) && !$chiamataTapPossibile) ? 'C\'è già un giocatore chiamato o un\'asta TAP in corso.' : 'Chiama questo giocatore per l\'asta TAP' }}">
-    			{{ __('Chiama per Asta TAP') }}
-			</button>
-        </form>
-    @elseif(isset($impostazioniLega) && $impostazioniLega->modalita_asta === 'voce' && in_array($impostazioniLega->fase_asta_corrente, ['P','D','C','A']))
-        <span class="text-xs text-gray-500 dark:text-gray-400 italic">
-            {{ __('Asta a Voce') }}
-        </span>
-    @else
-        <span class="text-xs text-gray-400 dark:text-gray-500">-</span>
-    @endif
-</td>
+                                                @if(isset($impostazioniLega) && $impostazioniLega->modalita_asta === 'tap' && in_array($impostazioniLega->fase_asta_corrente, ['P','D','C','A']))
+                                                    <form method="POST" action="{{ route('asta.registra.chiamata', $calciatore->id) }}">
+                                                        @csrf
+                                                        @php
+                                                            // La variabile $chiamataTapPossibile deve essere passata dal controller
+                                                            // Determina se il pulsante deve essere disabilitato
+                                                            $isButtonDisabled = !(isset($chiamataTapPossibile) && $chiamataTapPossibile);
+                                                            $buttonTitle = $isButtonDisabled
+                                                                ? __('C\'è già un giocatore chiamato o un\'asta TAP in corso, oppure la chiamata non è permessa.')
+                                                                : __('Chiama questo giocatore per l\'asta TAP');
+                                                        @endphp
+                                                        <button type="submit" class="inline-flex items-center px-4 py-2 bg-green-500 border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-green-600 active:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800 transition ease-in-out duration-150 {{ $isButtonDisabled ? 'opacity-50 cursor-not-allowed' : '' }}"
+                                                            {{ $isButtonDisabled ? 'disabled' : '' }}
+                                                            title="{{ $buttonTitle }}">
+                                                            {{ __('Chiama per Asta TAP') }}
+                                                        </button>
+                                                    </form>
+                                                @elseif(isset($impostazioniLega) && $impostazioniLega->modalita_asta === 'voce' && in_array($impostazioniLega->fase_asta_corrente, ['P','D','C','A']))
+                                                    <span class="text-xs text-gray-500 dark:text-gray-400 italic">
+                                                        {{ __('Asta a Voce') }}
+                                                    </span>
+                                                @else
+                                                    {{-- Caso in cui l'asta non è in fase P,D,C,A o modalità non TAP --}}
+                                                    <span class="text-xs text-gray-400 dark:text-gray-500">-</span>
+                                                @endif
+                                            </td>
                                         </tr>
                                     @endforeach
                                 </tbody>
@@ -119,18 +135,24 @@
                         </div>
                     </div>
                 </div>
+            {{-- Messaggio se non ci sono giocatori da mostrare (e non c'è un messaggio di blocco prioritario) --}}
             @elseif (!isset($messaggio) && isset($calciatori) && $calciatori->isEmpty())
                 <div class="bg-white dark:bg-gray-800 overflow-hidden shadow-sm sm:rounded-lg">
                     <div class="p-6 text-gray-900 dark:text-gray-100">
-                        {{ __('Nessun calciatore disponibile per la fase attuale') }} ({{ $faseAstaCorrente ?? 'N/D' }}) {{ __('o per la lista giocatori') }} "{{ $tagListaAttiva ?? 'N/D' }}".
+                        {{ __('Nessun calciatore disponibile per la fase attuale') }} ({{ $faseAstaCorrente ?? 'N/D' }}) {{ __('o per la lista giocatori') }} "{{ $tagListaAttiva ?? 'N/D' }}" {{ __('che corrisponda ai filtri applicati, oppure sono già stati tutti acquistati.') }}
                     </div>
                 </div>
             @endif
-            
+
             <div class="mt-6 text-center">
                 <a href="{{ route('dashboard') }}" class="text-indigo-600 dark:text-indigo-400 hover:underline">
                     &larr; {{ __('Torna alla Dashboard Squadra') }}
                 </a>
+                 @if(isset($impostazioniLega) && $impostazioniLega->modalita_asta === 'tap')
+                <a href="{{ route('asta.live') }}" class="ml-4 text-green-600 dark:text-green-400 hover:underline font-semibold">
+                    {{ __('Vai all\'Asta Live') }} &rarr;
+                </a>
+                @endif
             </div>
         </div>
     </div>
