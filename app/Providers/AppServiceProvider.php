@@ -3,6 +3,8 @@
 namespace App\Providers;
 
 use Illuminate\Support\ServiceProvider;
+use Illuminate\Support\Facades\View;         // Facade corretta
+use App\Http\View\Composers\NavigationComposer; // Namespace e nome classe corretti
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -15,7 +17,7 @@ class AppServiceProvider extends ServiceProvider
     {
         //
     }
-
+    
     /**
      * Bootstrap any application services.
      *
@@ -23,6 +25,9 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot()
     {
-        //
+        View::composer(
+            'layouts.navigation', // La vista a cui legare il composer
+            NavigationComposer::class // Il nome completo della classe del composer
+            );
     }
 }

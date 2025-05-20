@@ -22,28 +22,54 @@
                             {{ $numeroGiocatoriInRosa }} / {{ $limiteGiocatoriTotaliInRosa }}
                         </span>
                     </p>
-                     <div class="text-sm mt-1 mb-2">
-                        <strong>Composizione Rosa:</strong>
-                        @php
-                            $ruoliDisplay = ['P', 'D', 'C', 'A'];
-                            $outputRuoli = [];
-                            foreach($ruoliDisplay as $ruolo) {
-                                $conteggio = $conteggioRuoli->get($ruolo, 0);
-                                $limite = $limitiRuoli[$ruolo];
-                                $coloreBadge = ($conteggio == $limite) ? 'bg-green-100 dark:bg-green-700 text-green-800 dark:text-green-100' : 'bg-red-100 dark:bg-red-700 text-red-800 dark:text-red-100';
-                                if ($limite == 0 && $conteggio == 0) {
-                                    $coloreBadge = 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-100';
-                                }
-                                 $outputRuoli[] = "<span class='px-2 py-0.5 text-xs font-semibold rounded-full mr-1 {$coloreBadge}'>{$ruolo}: {$conteggio}/{$limite}</span>";
-                            }
-                        @endphp
-                        {!! implode(' | ', $outputRuoli) !!}
+
+                    {{-- SEZIONE COMPOSIZIONE ROSA - TESTO COMPATTO SU UNA RIGA PER RUOLO --}}
+                    <div class="text-sm mt-2 mb-2">
+                        <h4 class="font-semibold mb-1 text-gray-700 dark:text-gray-200">Composizione Rosa Dettagliata:</h4>
+                        <div class="space-y-1"> {{-- Manteniamo space-y-1 per separare verticalmente le righe dei ruoli --}}
+                            @php
+                                $ruoliDisplay = ['P', 'D', 'C', 'A'];
+                            @endphp
+                            @foreach($ruoliDisplay as $ruolo)
+                                @php
+                                    $conteggio = isset($conteggioRuoli) ? $conteggioRuoli->get($ruolo, 0) : 0;
+                                    $costoRuolo = isset($costiPerRuolo) ? $costiPerRuolo->get($ruolo, 0) : 0;
+                                    $limite = isset($limitiRuoli) && isset($limitiRuoli[$ruolo]) ? $limitiRuoli[$ruolo] : 0;
+
+                                    $coloreTesto = 'text-gray-700 dark:text-gray-300'; // Default
+                                    if ($limite > 0) {
+                                        if ($conteggio == $limite) {
+                                            $coloreTesto = 'text-green-600 dark:text-green-400';
+                                        } elseif ($conteggio < $limite) {
+                                            $coloreTesto = 'text-red-600 dark:text-red-400';
+                                        } else { // $conteggio > $limite
+                                            $coloreTesto = 'text-yellow-600 dark:text-yellow-400';
+                                        }
+                                    } elseif ($conteggio > 0 && $limite == 0) {
+                                        $coloreTesto = 'text-blue-600 dark:text-blue-400';
+                                    }
+                                    $testoLimite = ($limite > 0) ? "/{$limite}" : ' ill.';
+                                @endphp
+                                {{-- Ogni ruolo è un semplice div di testo. Il flexbox non è più necessario qui per questo layout. --}}
+                                <div class="py-1 px-2 rounded {{ $loop->odd ? 'bg-gray-50 dark:bg-gray-700/50' : 'bg-white dark:bg-gray-800' }}">
+                                    <strong class="font-bold {{ $coloreTesto }}">{{ $ruolo }}:</strong>
+                                    <span class="{{ $coloreTesto }}">{{ $conteggio }}{{ $testoLimite }}</span>
+                                    {{-- I costi sono ora direttamente accodati, con un leggero spazio --}}
+                                    <span class="ml-2 text-xs text-gray-500 dark:text-gray-400">
+                                        (Spesi: <strong class="font-medium text-gray-700 dark:text-gray-200">{{ $costoRuolo }} crd.</strong>)
+                                    </span>
+                                </div>
+                            @endforeach
+                        </div>
                     </div>
-                    <p><strong>Fase Asta Corrente:</strong> {{ $impostazioniLega->fase_asta_corrente }}</p>
+                    {{-- FINE SEZIONE COMPOSIZIONE ROSA --}}
+
+                    <p class="mt-4"><strong>Fase Asta Corrente:</strong> {{ $impostazioniLega->fase_asta_corrente }}</p>
                     <p><strong>Lista Calciatori Attiva:</strong> {{ $impostazioniLega->tag_lista_attiva ?? 'Non definita' }}</p>
                 </div>
             </div>
 
+            {{-- Resto della dashboard (tabella rosa, ecc.) --}}
             <div class="bg-white dark:bg-gray-800 overflow-hidden shadow-sm sm:rounded-lg">
                 <div class="p-6 text-gray-900 dark:text-gray-100">
                     <h3 class="text-lg font-semibold mb-4">La Mia Rosa</h3>
@@ -59,11 +85,11 @@
                                     </tr>
                                 </thead>
                                 <tbody class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                                    @foreach($rosa->sortBy(function($acquisto){ return match($acquisto->calciatore->ruolo ?? '') {'P'=>1, 'D'=>2, 'C'=>3, 'A'=>4, default=>5}; }) as $acquisto)
+                                    @foreach($rosa->sortBy(function($acquisto){ return match(optional($acquisto->calciatore)->ruolo ?? '') {'P'=>1, 'D'=>2, 'C'=>3, 'A'=>4, default=>5}; }) as $acquisto)
                                         <tr>
-                                            <td class="px-4 py-2 whitespace-nowrap">{{ $acquisto->calciatore->ruolo ?? 'N/D' }}</td>
-                                            <td class="px-4 py-2 whitespace-nowrap font-medium">{{ $acquisto->calciatore->nome_completo ?? 'N/D' }}</td>
-                                            <td class="px-4 py-2 whitespace-nowrap">{{ $acquisto->calciatore->squadra_serie_a ?? 'N/D' }}</td>
+                                            <td class="px-4 py-2 whitespace-nowrap">{{ optional($acquisto->calciatore)->ruolo ?? 'N/D' }}</td>
+                                            <td class="px-4 py-2 whitespace-nowrap font-medium">{{ optional($acquisto->calciatore)->nome_completo ?? 'N/D' }}</td>
+                                            <td class="px-4 py-2 whitespace-nowrap">{{ optional($acquisto->calciatore)->squadra_serie_a ?? 'N/D' }}</td>
                                             <td class="px-4 py-2 whitespace-nowrap">{{ $acquisto->prezzo_acquisto }}</td>
                                         </tr>
                                     @endforeach

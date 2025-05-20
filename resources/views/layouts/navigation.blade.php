@@ -13,12 +13,23 @@
                         {{ __('Dashboard') }}
                     </x-nav-link>
 
+                    {{-- ===== BLOCCO LINK ASTA LIVE (per tutti gli utenti, admin inclusi) ===== --}}
+                    @auth {{-- Assicura che l'utente sia loggato --}}
+                        {{-- La variabile $mostraLinkAstaLiveGlobal viene ora fornita da NavigationComposer --}}
+                        @if (isset($mostraLinkAstaLiveGlobal) && $mostraLinkAstaLiveGlobal)
+                            <x-nav-link :href="route('asta.live')" :active="request()->routeIs('asta.live')">
+                                {{ __('Asta Live') }}
+                            </x-nav-link>
+                        @endif
+                    @endauth
+                    {{-- ===== FINE BLOCCO LINK ASTA LIVE ===== --}}
+
                     {{-- ===== BLOCCO LINK ADMIN (SCHERMI GRANDI) CON DROPDOWN ===== --}}
                     @if (Auth::check() && Auth::user()->is_admin)
                         <div class="hidden sm:flex sm:items-center sm:ms-6">
                             <x-dropdown align="left" width="48">
                                 <x-slot name="trigger">
-                                    <button class="inline-flex items-center px-1 pt-1 border-b-2 {{ request()->routeIs('admin.giocatori.index*') || request()->routeIs('admin.users.index*') ? 'border-indigo-400 dark:border-indigo-600 text-gray-900 dark:text-gray-100' : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-700' }} text-sm font-medium leading-5 focus:outline-none focus:text-gray-700 dark:focus:text-gray-300 focus:border-gray-300 dark:focus:border-gray-700 transition duration-150 ease-in-out">
+                                    <button class="inline-flex items-center px-1 pt-1 border-b-2 {{ request()->routeIs('admin.giocatori.index*') || request()->routeIs('admin.giocatori.import.show*') || request()->routeIs('admin.users.index*') ? 'border-indigo-400 dark:border-indigo-600 text-gray-900 dark:text-gray-100' : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-700' }} text-sm font-medium leading-5 focus:outline-none focus:text-gray-700 dark:focus:text-gray-300 focus:border-gray-300 dark:focus:border-gray-700 transition duration-150 ease-in-out">
                                         <div>{{ __('Gestione Dati') }}</div>
                                         <div class="ms-1">
                                             <svg class="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" /></svg>
@@ -42,7 +53,7 @@
                         <div class="hidden sm:flex sm:items-center sm:ms-6">
                              <x-dropdown align="left" width="48">
                                 <x-slot name="trigger">
-                                     <button class="inline-flex items-center px-1 pt-1 border-b-2 {{ request()->routeIs('admin.settings.index*') || request()->routeIs('admin.giocatori.assegna.show*') || request()->routeIs('admin.rose.squadre.index*') || request()->routeIs('admin.mia_squadra.dashboard*') ? 'border-indigo-400 dark:border-indigo-600 text-gray-900 dark:text-gray-100' : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-700' }} text-sm font-medium leading-5 focus:outline-none focus:text-gray-700 dark:focus:text-gray-300 focus:border-gray-300 dark:focus:border-gray-700 transition duration-150 ease-in-out">
+                                     <button class="inline-flex items-center px-1 pt-1 border-b-2 {{ request()->routeIs('admin.settings.index*') || request()->routeIs('admin.giocatori.assegna.show*') || request()->routeIs('admin.rose.squadre.index*') || request()->routeIs('admin.mia_squadra.dashboard*') || request()->routeIs('admin.asta.chiamate.gestione*') ? 'border-indigo-400 dark:border-indigo-600 text-gray-900 dark:text-gray-100' : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-700' }} text-sm font-medium leading-5 focus:outline-none focus:text-gray-700 dark:focus:text-gray-300 focus:border-gray-300 dark:focus:border-gray-700 transition duration-150 ease-in-out">
                                         <div>{{ __('Configurazione Asta') }}</div>
                                         <div class="ms-1">
                                             <svg class="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" /></svg>
@@ -62,7 +73,7 @@
                                     <x-dropdown-link :href="route('admin.mia_squadra.dashboard')">
                                         {{ __('La Mia Squadra (Admin)') }}
                                     </x-dropdown-link>
-									<x-dropdown-link :href="route('admin.asta.chiamate.gestione')">
+                                    <x-dropdown-link :href="route('admin.asta.chiamate.gestione')">
                                         {{ __('Offerte TAP') }}
                                     </x-dropdown-link>
                                 </x-slot>
@@ -79,19 +90,26 @@
                         <x-slot name="trigger">
                             <button class="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-gray-500 dark:text-gray-400 bg-white dark:bg-gray-800 hover:text-gray-700 dark:hover:text-gray-300 focus:outline-none transition ease-in-out duration-150">
                                 <div>{{ Auth::user()->name }}</div>
+
                                 <div class="ms-1">
-                                    <svg class="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" /></svg>
+                                    <svg class="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
+                                        <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                                    </svg>
                                 </div>
                             </button>
                         </x-slot>
+
                         <x-slot name="content">
                             <x-dropdown-link :href="route('profile.edit')">
                                 {{ __('Profile') }}
                             </x-dropdown-link>
+
                             <form method="POST" action="{{ route('logout') }}">
                                 @csrf
+
                                 <x-dropdown-link :href="route('logout')"
-                                        onclick="event.preventDefault(); this.closest('form').submit();">
+                                        onclick="event.preventDefault();
+                                                this.closest('form').submit();">
                                     {{ __('Log Out') }}
                                 </x-dropdown-link>
                             </form>
@@ -117,38 +135,52 @@
                 {{ __('Dashboard') }}
             </x-responsive-nav-link>
 
-            {{-- ===== BLOCCO LINK ADMIN (MENU RESPONSIVE) ===== --}}
-            @if (Auth::check() && Auth::user()->is_admin)
-                <div class="mt-3 space-y-1 border-t border-gray-200 dark:border-gray-700 pt-3">
-                    <div class="px-4 font-medium text-base text-gray-800 dark:text-gray-200 mb-1">{{ __('Gestione Dati') }}</div>
-                    <x-responsive-nav-link :href="route('admin.giocatori.index')" :active="request()->routeIs('admin.giocatori.index')">
-                        {{ __('Elenco Calciatori') }}
+            {{-- ===== BLOCCO LINK ASTA LIVE (MENU RESPONSIVE) ===== --}}
+            @auth
+                {{-- La variabile $mostraLinkAstaLiveGlobal viene ora fornita da NavigationComposer --}}
+                @if (isset($mostraLinkAstaLiveGlobal) && $mostraLinkAstaLiveGlobal)
+                    <x-responsive-nav-link :href="route('asta.live')" :active="request()->routeIs('asta.live')">
+                        {{ __('Asta Live') }}
                     </x-responsive-nav-link>
-                    <x-responsive-nav-link :href="route('admin.giocatori.import.show')" :active="request()->routeIs('admin.giocatori.import.show')">
-                        {{ __('Importa CSV Calciatori') }}
-                    </x-responsive-nav-link>
-                    <x-responsive-nav-link :href="route('admin.users.index')" :active="request()->routeIs('admin.users.index')">
-                        {{ __('Gestione Squadre/Utenti') }}
-                    </x-responsive-nav-link>
-                </div>
-                <div class="mt-3 space-y-1 border-t border-gray-200 dark:border-gray-700 pt-3">
-                     <div class="px-4 font-medium text-base text-gray-800 dark:text-gray-200 mb-1">{{ __('Configurazione Asta') }}</div>
-                    <x-responsive-nav-link :href="route('admin.settings.index')" :active="request()->routeIs('admin.settings.index')">
-                        {{ __('Impostazioni Lega/Asta') }}
-                    </x-responsive-nav-link>
-                    <x-responsive-nav-link :href="route('admin.giocatori.assegna.show')" :active="request()->routeIs('admin.giocatori.assegna.show')">
-                        {{ __('Assegna Giocatore Manualmente') }}
-                    </x-responsive-nav-link>
-                    <x-responsive-nav-link :href="route('admin.rose.squadre.index')" :active="request()->routeIs('admin.rose.squadre.index')">
-                        {{ __('Visualizza Rose Squadre') }}
-                    </x-responsive-nav-link>
-                    <x-responsive-nav-link :href="route('admin.mia_squadra.dashboard')" :active="request()->routeIs('admin.mia_squadra.dashboard')">
-                        {{ __('La Mia Squadra (Admin)') }}
-                    </x-responsive-nav-link>
-                </div>
-            @endif
-            {{-- ===== FINE BLOCCO LINK ADMIN (MENU RESPONSIVE) ===== --}}
+                @endif
+            @endauth
+            {{-- ===== FINE BLOCCO LINK ASTA LIVE (MENU RESPONSIVE) ===== --}}
         </div>
+
+        {{-- ===== BLOCCO LINK ADMIN (MENU RESPONSIVE) ===== --}}
+        @if (Auth::check() && Auth::user()->is_admin)
+            <div class="mt-3 space-y-1 border-t border-gray-200 dark:border-gray-700 pt-3">
+                <div class="px-4 font-medium text-base text-gray-800 dark:text-gray-200 mb-1">{{ __('Gestione Dati') }}</div>
+                <x-responsive-nav-link :href="route('admin.giocatori.index')" :active="request()->routeIs('admin.giocatori.index')">
+                    {{ __('Elenco Calciatori') }}
+                </x-responsive-nav-link>
+                <x-responsive-nav-link :href="route('admin.giocatori.import.show')" :active="request()->routeIs('admin.giocatori.import.show')">
+                    {{ __('Importa CSV Calciatori') }}
+                </x-responsive-nav-link>
+                <x-responsive-nav-link :href="route('admin.users.index')" :active="request()->routeIs('admin.users.index')">
+                    {{ __('Gestione Squadre/Utenti') }}
+                </x-responsive-nav-link>
+            </div>
+            <div class="mt-3 space-y-1 border-t border-gray-200 dark:border-gray-700 pt-3">
+                 <div class="px-4 font-medium text-base text-gray-800 dark:text-gray-200 mb-1">{{ __('Configurazione Asta') }}</div>
+                <x-responsive-nav-link :href="route('admin.settings.index')" :active="request()->routeIs('admin.settings.index')">
+                    {{ __('Impostazioni Lega/Asta') }}
+                </x-responsive-nav-link>
+                <x-responsive-nav-link :href="route('admin.giocatori.assegna.show')" :active="request()->routeIs('admin.giocatori.assegna.show')">
+                    {{ __('Assegna Giocatore Manualmente') }}
+                </x-responsive-nav-link>
+                <x-responsive-nav-link :href="route('admin.rose.squadre.index')" :active="request()->routeIs('admin.rose.squadre.index')">
+                    {{ __('Visualizza Rose Squadre') }}
+                </x-responsive-nav-link>
+                <x-responsive-nav-link :href="route('admin.mia_squadra.dashboard')" :active="request()->routeIs('admin.mia_squadra.dashboard')">
+                    {{ __('La Mia Squadra (Admin)') }}
+                </x-responsive-nav-link>
+                <x-responsive-nav-link :href="route('admin.asta.chiamate.gestione')" :active="request()->routeIs('admin.asta.chiamate.gestione')">
+                    {{ __('Offerte TAP') }}
+                </x-responsive-nav-link>
+            </div>
+        @endif
+        {{-- ===== FINE BLOCCO LINK ADMIN (MENU RESPONSIVE) ===== --}}
 
         @auth
             <div class="pt-4 pb-1 border-t border-gray-200 dark:border-gray-600">
@@ -156,14 +188,18 @@
                     <div class="font-medium text-base text-gray-800 dark:text-gray-200">{{ Auth::user()->name }}</div>
                     <div class="font-medium text-sm text-gray-500">{{ Auth::user()->email }}</div>
                 </div>
+
                 <div class="mt-3 space-y-1">
                     <x-responsive-nav-link :href="route('profile.edit')">
                         {{ __('Profile') }}
                     </x-responsive-nav-link>
+
                     <form method="POST" action="{{ route('logout') }}">
                         @csrf
+
                         <x-responsive-nav-link :href="route('logout')"
-                                onclick="event.preventDefault(); this.closest('form').submit();">
+                                onclick="event.preventDefault();
+                                            this.closest('form').submit();">
                             {{ __('Log Out') }}
                         </x-responsive-nav-link>
                     </form>
