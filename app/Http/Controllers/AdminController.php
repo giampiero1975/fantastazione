@@ -163,7 +163,6 @@ class AdminController extends Controller
         return $mappaNomi[$codiceFase] ?? $codiceFase;
     }
     
-    // app/Http/Controllers/AdminController.php
     public function settings()
     {
         $impostazioni = ImpostazioneLega::firstOrFail();
@@ -172,13 +171,10 @@ class AdminController extends Controller
         ->whereNotNull('tag_lista_inserimento')->where('tag_lista_inserimento', '!=', '')
         ->distinct()->orderBy('tag_lista_inserimento', 'desc')->pluck('tag_lista_inserimento');
         
-        // Utenti per il dropdown "Prossimo a Chiamare" - include tutti
         $utentiPerSelezioneProssimo = User::orderBy('name')->get(['id', 'name']);
-        
-        // Utenti per la gestione dell'ordine di chiamata - include tutti (admin partecipante)
         $squadrePerOrdinamento = User::orderBy('ordine_chiamata', 'asc')
         ->orderBy('name', 'asc')
-        ->get(['id', 'name', 'ordine_chiamata']);
+        ->get(['id', 'name', 'ordine_chiamata', 'is_admin']); // Aggiunto is_admin per riferimento
         
         return view('admin.impostazioni.index', compact(
             'impostazioni',
@@ -193,187 +189,246 @@ class AdminController extends Controller
     {
         $impostazioni = ImpostazioneLega::firstOrFail();
         $faseAstaAttualeDB = $impostazioni->fase_asta_corrente;
-        $tagListaAttivaDB = $impostazioni->tag_lista_attiva ?: $request->input('tag_lista_attiva');
+        $tagListaAttivaDB = $impostazioni->tag_lista_attiva;
+        
+        $fasiPossibiliOpzioni = $this->getFasiDropdownOpzioni();
+        $isResetCompletoRichiesto = $request->boolean('reset_asta_completo');
+        $isFasePreAsta = $request->input('fase_asta_corrente') === 'PRE_ASTA' || $faseAstaAttualeDB === 'PRE_ASTA'; // Considera la fase richiesta e quella attuale per i required
         
         $validatedData = $request->validate([
-            'fase_asta_corrente' => ['required', 'string', Rule::in(array_keys($this->getFasiDropdownOpzioni()))],
+            'fase_asta_corrente' => ['required', 'string', Rule::in(array_keys($fasiPossibiliOpzioni))],
             'tag_lista_attiva' => [
-                Rule::requiredIf(fn() => in_array($request->input('fase_asta_corrente'), $this->getFasiRuoloOrdinate())),
+                Rule::requiredIf(fn () => in_array($request->input('fase_asta_corrente'), $this->getFasiRuoloOrdinate()) || $isResetCompletoRichiesto),
                 'nullable', 'string', 'max:255'
             ],
             'modalita_asta' => ['required', 'string', Rule::in(['voce', 'tap'])],
             'durata_countdown_secondi' => ['required', 'integer', 'min:10', 'max:300'],
             'asta_tap_approvazione_admin' => ['required', 'boolean'],
             'usa_ordine_chiamata' => ['required', 'boolean'],
-            'crediti_iniziali_lega' => ['required', 'integer', 'min:1', 'max:9999'],
-            'num_portieri' => ['required', 'integer', 'min:0', 'max:25'],
-            'num_difensori' => ['required', 'integer', 'min:0', 'max:25'],
-            'num_centrocampisti' => ['required', 'integer', 'min:0', 'max:25'],
-            'num_attaccanti' => ['required', 'integer', 'min:0', 'max:25'],
+            
+            // Modifica qui le regole per renderle condizionalmente required
+            'crediti_iniziali_lega' => [
+                Rule::requiredIf(fn() => $isFasePreAsta || $isResetCompletoRichiesto),
+                'nullable', // Permetti null se non required
+                'integer', 'min:1', 'max:9999'
+            ],
+            'num_portieri' => [
+                Rule::requiredIf(fn() => $isFasePreAsta || $isResetCompletoRichiesto),
+                'nullable',
+                'integer', 'min:0', 'max:25'
+            ],
+            'num_difensori' => [
+                Rule::requiredIf(fn() => $isFasePreAsta || $isResetCompletoRichiesto),
+                'nullable',
+                'integer', 'min:0', 'max:25'
+            ],
+            'num_centrocampisti' => [
+                Rule::requiredIf(fn() => $isFasePreAsta || $isResetCompletoRichiesto),
+                'nullable',
+                'integer', 'min:0', 'max:25'
+            ],
+            'num_attaccanti' => [
+                Rule::requiredIf(fn() => $isFasePreAsta || $isResetCompletoRichiesto),
+                'nullable',
+                'integer', 'min:0', 'max:25'
+            ],
+            
             'reset_asta_completo' => ['nullable', 'boolean'],
             'tipo_base_asta' => ['required', Rule::in(['quotazione_iniziale', 'credito_singolo'])],
             'ordine_squadre' => ['nullable', 'array'],
             'ordine_squadre.*' => ['nullable', 'integer', 'min:1'],
             'prossimo_turno_chiamata_user_id' => ['nullable', 'exists:users,id'],
-            // Aggiungi qui le validazioni per i nuovi campi se li hai nel form
             'max_sostituzioni_stagionali' => ['required', 'integer', 'min:0', 'max:99'],
             'percentuale_crediti_svincolo_riparazione' => ['required', 'integer', 'min:0', 'max:100'],
         ]);
         
-        $ordiniSquadreInput = array_filter((array)$request->input('ordine_squadre'), function($value) {
-            return $value !== null && $value !== '';
-        });
-            if (count($ordiniSquadreInput) !== count(array_unique($ordiniSquadreInput))) {
-                return redirect()->route('admin.impostazioni.index')->withInput()
-                ->withErrors(['ordine_squadre' => 'I numeri di ordine assegnati alle squadre devono essere unici (o vuoti).']);
-            }
-            
-            $nuovaFaseAstaRichiesta = $validatedData['fase_asta_corrente'];
-            
-            // Logica di controllo avanzamento fase (se non c'è reset completo)
-            if (!$request->boolean('reset_asta_completo') && $nuovaFaseAstaRichiesta !== $faseAstaAttualeDB) {
-                // ... (TUTTA la tua logica di controllo avanzamento fase che abbiamo discusso precedentemente)
-                // Es: controllo PRE_ASTA -> P, controllo P -> D con verifica rose, ecc.
-                // Questa logica è complessa e dipende dalle tue regole specifiche.
-                // Assicurati che sia completa e corretta.
-                // Esempio di un controllo:
-                $fasiRuoloOrdinate = $this->getFasiRuoloOrdinate();
-                $indiceAttuale = array_search($faseAstaAttualeDB, $fasiRuoloOrdinate);
-                $indiceNuovo = array_search($nuovaFaseAstaRichiesta, $fasiRuoloOrdinate);
-                
-                if ($indiceNuovo !== false) { // Se la nuova fase è una fase di ruolo P,D,C,A
-                    if ($faseAstaAttualeDB === 'PRE_ASTA' && $nuovaFaseAstaRichiesta !== 'P') {
-                        return redirect()->route('admin.impostazioni.index')->withInput()
-                        ->with('error', "Dalla fase PRE_ASTA puoi passare solo alla fase Portieri (P).");
-                    } elseif ($indiceAttuale !== false && $indiceNuovo === $indiceAttuale + 1) {
-                        // Logica di controllo completamento reparto precedente...
-                        $ruoloDaAverCompletato = $fasiRuoloOrdinate[$indiceAttuale];
-                        $limiteRuolo = match ($ruoloDaAverCompletato) {
-                            'P' => $impostazioni->num_portieri, 'D' => $impostazioni->num_difensori,
-                            'C' => $impostazioni->num_centrocampisti, 'A' => $impostazioni->num_attaccanti,
-                            default => 0,
-                        };
-                        if ($limiteRuolo > 0) { /* ... controlla squadre incomplete ... */ }
-                    } elseif ($faseAstaAttualeDB !== 'PRE_ASTA' && $faseAstaAttualeDB !== 'CONCLUSA' && $indiceAttuale !== false && $indiceNuovo !== $indiceAttuale + 1) {
-                        return redirect()->route('admin.impostazioni.index')->withInput()
-                        ->with('error', "Cambio fase non consentito. Devi seguire l'ordine P > D > C > A.");
-                    }
+        // ... il resto del metodo rimane come l'abbiamo discusso,
+        // inclusa la logica che preserva i valori dal DB se i campi sono bloccati ...
+        
+        $nuovaFaseAstaRichiesta = $validatedData['fase_asta_corrente'];
+        $tagListaPerOperazioni = $validatedData['tag_lista_attiva'] ?: $tagListaAttivaDB;
+        
+        $datiDaAggiornare = $validatedData;
+        
+        if ($faseAstaAttualeDB !== 'PRE_ASTA' && !$isResetCompletoRichiesto) {
+            $campiDaPreservare = [
+                'crediti_iniziali_lega', 'num_portieri', 'num_difensori',
+                'num_centrocampisti', 'num_attaccanti'
+            ];
+            foreach ($campiDaPreservare as $campo) {
+                // Se il campo non è stato inviato dal form O se era disabilitato ma vogliamo comunque usare il valore del DB
+                if (!array_key_exists($campo, $validatedData) || is_null($validatedData[$campo])) {
+                    $datiDaAggiornare[$campo] = $impostazioni->$campo;
                 }
             }
+            Log::info("[UpdateSettings] Modifica limiti rosa e crediti iniziali controllata perché faseAsta attuale ('{$faseAstaAttualeDB}') non è PRE_ASTA e non è un reset completo.");
+        }
+        // La logica di validazione del completamento del reparto va qui, usando $faseAstaAttualeDB e $nuovaFaseAstaRichiesta
+        // ...
+        if (!$isResetCompletoRichiesto && $nuovaFaseAstaRichiesta !== $faseAstaAttualeDB) {
+            $fasiRuoloOrdinate = $this->getFasiRuoloOrdinate();
+            $indiceAttuale = array_search($faseAstaAttualeDB, $fasiRuoloOrdinate);
+            $indiceNuovo = array_search($nuovaFaseAstaRichiesta, $fasiRuoloOrdinate);
             
-            
-            $datiDaAggiornare = [
-                'fase_asta_corrente' => $validatedData['fase_asta_corrente'],
-                'tag_lista_attiva' => $validatedData['tag_lista_attiva'],
-                'modalita_asta' => $validatedData['modalita_asta'],
-                'durata_countdown_secondi' => $validatedData['durata_countdown_secondi'],
-                'asta_tap_approvazione_admin' => $validatedData['asta_tap_approvazione_admin'],
-                'usa_ordine_chiamata' => $validatedData['usa_ordine_chiamata'],
-                'crediti_iniziali_lega' => $validatedData['crediti_iniziali_lega'],
-                'num_portieri' => $validatedData['num_portieri'],
-                'num_difensori' => $validatedData['num_difensori'],
-                'num_centrocampisti' => $validatedData['num_centrocampisti'],
-                'num_attaccanti' => $validatedData['num_attaccanti'],
-                'tipo_base_asta' => $validatedData['tipo_base_asta'],
-                'prossimo_turno_chiamata_user_id' => $validatedData['prossimo_turno_chiamata_user_id'],
-                'max_sostituzioni_stagionali' => $validatedData['max_sostituzioni_stagionali'],
-                'percentuale_crediti_svincolo_riparazione' => $validatedData['percentuale_crediti_svincolo_riparazione'],
-            ];
-            
-            $messaggioSuccesso = 'Impostazioni aggiornate con successo.';
-            
-            DB::beginTransaction();
-            try {
-                if ($request->has('ordine_squadre')) {
-                    foreach ($request->input('ordine_squadre') as $userId => $ordine) {
-                        $user = User::find($userId);
-                        if ($user) {
-                            $user->ordine_chiamata = ($ordine === '' || $ordine === null) ? null : (int)$ordine;
-                            $user->save();
+            if ($faseAstaAttualeDB === 'PRE_ASTA') {
+                $fasiPostPreAstaPermesse = ['P', 'CONCLUSA', 'SVINCOLI_STAGIONALI', 'ASTA_RIPARAZIONE'];
+                if (!in_array($nuovaFaseAstaRichiesta, $fasiPostPreAstaPermesse)) {
+                    return redirect()->route('admin.impostazioni.index')->withInput()
+                    ->with('error', "Dalla fase PRE_ASTA puoi passare solo alla fase Portieri (P) o a fasi di mercato successive.");
+                }
+            }
+            else if ($indiceAttuale !== false) {
+                $ruoloDaAverCompletato = $fasiRuoloOrdinate[$indiceAttuale];
+                $avanzamentoLogico = ($indiceNuovo !== false && $indiceNuovo === $indiceAttuale + 1) ||
+                ($ruoloDaAverCompletato === 'A' && $nuovaFaseAstaRichiesta === 'CONCLUSA');
+                
+                if (!$avanzamentoLogico && !in_array($nuovaFaseAstaRichiesta, ['CONCLUSA', 'SVINCOLI_STAGIONALI', 'ASTA_RIPARAZIONE'])) {
+                    return redirect()->route('admin.impostazioni.index')->withInput()
+                    ->with('error', "Cambio fase non consentito. Da una fase d'asta per ruolo ({$faseAstaAttualeDB}) puoi avanzare al ruolo successivo, a CONCLUSA (da A), o a SVINCOLI STAGIONALI/ASTA_RIPARAZIONE.");
+                }
+                
+                if ($avanzamentoLogico) {
+                    $limiteRuolo = match ($ruoloDaAverCompletato) {
+                        'P' => $datiDaAggiornare['num_portieri'], // Usa i valori che verranno salvati
+                        'D' => $datiDaAggiornare['num_difensori'],
+                        'C' => $datiDaAggiornare['num_centrocampisti'],
+                        'A' => $datiDaAggiornare['num_attaccanti'],
+                        default => 0,
+                    };
+                    
+                    if ($limiteRuolo > 0) {
+                        $squadrePartecipanti = User::all(); // Admin è partecipante
+                        $squadreIncomplete = [];
+                        foreach ($squadrePartecipanti as $squadra) {
+                            $countQuery = GiocatoreAcquistato::where('user_id', $squadra->id)
+                            ->whereHas('calciatore', function ($query) use ($ruoloDaAverCompletato, $tagListaPerOperazioni) {
+                                $query->where('ruolo', $ruoloDaAverCompletato);
+                                if ($tagListaPerOperazioni) {
+                                    $query->where('tag_lista_inserimento', $tagListaPerOperazioni);
+                                }
+                            });
+                                $giocatoriNelRuolo = $countQuery->count();
+                                if ($giocatoriNelRuolo < $limiteRuolo) {
+                                    $squadreIncomplete[] = $squadra->name . " (ha {$giocatoriNelRuolo}/{$limiteRuolo} " . $this->getNomeFaseCompleto($ruoloDaAverCompletato) . ")";
+                                }
+                        }
+                        if (!empty($squadreIncomplete)) {
+                            $messaggioErrore = "Impossibile avanzare alla fase {$this->getNomeFaseCompleto($nuovaFaseAstaRichiesta)}. Le seguenti squadre non hanno completato il reparto {$this->getNomeFaseCompleto($ruoloDaAverCompletato)} (per il tag '{$tagListaPerOperazioni}'): " . implode('; ', $squadreIncomplete);
+                            return redirect()->route('admin.impostazioni.index')->withInput()->with('error', $messaggioErrore);
                         }
                     }
-                    $messaggioSuccesso .= ' Ordine di chiamata delle squadre aggiornato.';
-                    $impostazioni->refresh(); // Ricarica l'istanza per riflettere gli ordini utente aggiornati
-                    // prima di chiamare avanzaTurnoChiamata
                 }
-                
-                if ($request->boolean('reset_asta_completo')) {
-                    if (empty($validatedData['tag_lista_attiva'])) {
-                        DB::rollBack(); // Importante annullare se c'è un errore prima del commit
-                        return redirect()->route('admin.impostazioni.index')->withInput()
-                        ->withErrors(['tag_lista_attiva' => 'Per il reset completo, è obbligatorio selezionare un "Tag Lista Calciatori Attiva".']);
-                    }
-                    if (!in_array($datiDaAggiornare['fase_asta_corrente'], ['PRE_ASTA', 'P'])) {
-                        $datiDaAggiornare['fase_asta_corrente'] = 'P';
-                    }
-                    
-                    $crediti = $validatedData['crediti_iniziali_lega'];
-                    User::query()->update([
-                        'crediti_iniziali_squadra' => $crediti,
-                        'crediti_rimanenti' => $crediti,
-                        'sostituzioni_stagionali_usate' => 0 // Azzera anche questo
-                    ]);
-                    
-                    GiocatoreAcquistato::whereHas('calciatore', function ($query) use ($validatedData) {
-                        $query->where('tag_lista_inserimento', $validatedData['tag_lista_attiva']);
-                    })->delete();
-                    
-                    ChiamataAsta::whereIn('stato_chiamata', ['in_attesa_admin', 'in_asta_tap_live'])
-                    ->where('tag_lista_calciatori', $validatedData['tag_lista_attiva'])
-                    ->update(['stato_chiamata' => 'annullata_admin', 'timestamp_fine_tap_prevista' => null]);
-                    
-                    if ($datiDaAggiornare['usa_ordine_chiamata']) {
-                        $impostazioni->avanzaTurnoChiamata(null); // Questo aggiornerà $impostazioni->prossimo_turno_chiamata_user_id
-                        $datiDaAggiornare['prossimo_turno_chiamata_user_id'] = $impostazioni->prossimo_turno_chiamata_user_id;
-                    } else {
-                        $datiDaAggiornare['prossimo_turno_chiamata_user_id'] = null;
-                    }
-                    $messaggioSuccesso = 'ASTA RESETTATA (per il tag '.$validatedData['tag_lista_attiva'].'): Crediti, rose, sostituzioni usate azzerate. Chiamate TAP annullate. Fase: ' . $this->getNomeFaseCompleto($datiDaAggiornare['fase_asta_corrente']) . '.';
-                    Log::info("RESET ASTA ESEGUITO: " . $messaggioSuccesso);
-                } else { // Se non c'è reset_asta_completo
-                    $usaOrdineChiamataRichiesto = $datiDaAggiornare['usa_ordine_chiamata'];
-                    $prossimoTurnoDalForm = $validatedData['prossimo_turno_chiamata_user_id'];
-                    
-                    if ($usaOrdineChiamataRichiesto) {
-                        // Se l'ordine è attivato ora, o era attivo ma non c'era un prossimo, o l'admin ha forzato un prossimo dal form
-                        if (($impostazioni->usa_ordine_chiamata == false && $usaOrdineChiamataRichiesto == true) ||
-                            is_null($impostazioni->prossimo_turno_chiamata_user_id) ||
-                            ($prossimoTurnoDalForm && $prossimoTurnoDalForm != $impostazioni->prossimo_turno_chiamata_user_id)
-                            ) {
-                                if ($prossimoTurnoDalForm) {
-                                    // Admin ha forzato un prossimo, usa quello
-                                    $datiDaAggiornare['prossimo_turno_chiamata_user_id'] = $prossimoTurnoDalForm;
-                                    Log::info("Ordine chiamata: prossimo turno FORZATO dall'admin a ID: " . $datiDaAggiornare['prossimo_turno_chiamata_user_id']);
-                                } else {
-                                    // Ordine attivato/resettato (senza reset completo), nessun prossimo forzato, calcola il primo
-                                    $impostazioni->avanzaTurnoChiamata(null); // Questo si basa sugli ordini_chiamata degli utenti appena salvati
-                                    $datiDaAggiornare['prossimo_turno_chiamata_user_id'] = $impostazioni->prossimo_turno_chiamata_user_id;
-                                    Log::info("Ordine chiamata (ri)attivato o inizializzato (no reset). Prossimo chiamante ID: " . ($datiDaAggiornare['prossimo_turno_chiamata_user_id'] ?? 'Nessuno'));
-                                }
-                            }
-                            // Se l'ordine era già attivo, c'era un prossimo, e l'admin non l'ha cambiato, $datiDaAggiornare['prossimo_turno_chiamata_user_id']
-                            // conterrà già il valore corretto passato dal form (che è quello attuale del DB).
-                    } else { // Se usa_ordine_chiamata è false
-                        $datiDaAggiornare['prossimo_turno_chiamata_user_id'] = null;
-                        Log::info("Ordine chiamata disattivato (no reset). Prossimo chiamante resettato a null.");
-                            }
-                }
-                
-                $impostazioni->update($datiDaAggiornare);
-                
-                DB::commit();
-                return redirect()->route('admin.impostazioni.index')->with('success', $messaggioSuccesso);
-                
-            } catch (Exception $e) {
-                DB::rollBack();
-                Log::error("Errore aggiornamento impostazioni o ordine squadre: " . $e->getMessage(), ['exception' => $e]);
-                return redirect()->route('admin.impostazioni.index')->withInput()->with('error', 'Errore durante il salvataggio: ' . $e->getMessage());
             }
+        }
+        
+        // ... resto del codice per DB::beginTransaction(), commit, ecc. come prima,
+        // assicurandosi di usare $datiDaAggiornare e $isResetCompletoRichiesto
+        // e $tagListaPerOperazioni dove necessario
+        // ...
+        $messaggioSuccesso = 'Impostazioni aggiornate con successo.';
+        
+        DB::beginTransaction();
+        try {
+            if ($request->has('ordine_squadre')) {
+                foreach ($request->input('ordine_squadre') as $userId => $ordine) {
+                    $user = User::find($userId);
+                    if ($user) {
+                        $user->ordine_chiamata = ($ordine === '' || $ordine === null) ? null : (int)$ordine;
+                        $user->save();
+                    }
+                }
+                $messaggioSuccesso .= ' Ordine di chiamata delle squadre aggiornato.';
+                $impostazioni->refresh();
+            }
+            
+            $datiFinaliPerUpdate = [];
+            $campiConsentitiPerUpdate = [
+                'fase_asta_corrente', 'tag_lista_attiva', 'modalita_asta', 'durata_countdown_secondi',
+                'asta_tap_approvazione_admin', 'usa_ordine_chiamata', 'crediti_iniziali_lega',
+                'num_portieri', 'num_difensori', 'num_centrocampisti', 'num_attaccanti',
+                'tipo_base_asta', 'prossimo_turno_chiamata_user_id',
+                'max_sostituzioni_stagionali', 'percentuale_crediti_svincolo_riparazione'
+            ];
+            
+            foreach ($campiConsentitiPerUpdate as $chiave) {
+                if (array_key_exists($chiave, $datiDaAggiornare)) {
+                    $datiFinaliPerUpdate[$chiave] = $datiDaAggiornare[$chiave];
+                }
+            }
+            
+            
+            if ($isResetCompletoRichiesto) {
+                if (empty($tagListaPerOperazioni)) {
+                    DB::rollBack();
+                    return redirect()->route('admin.impostazioni.index')->withInput()
+                    ->withErrors(['tag_lista_attiva' => 'Per il reset completo, è obbligatorio selezionare un "Tag Lista Calciatori Attiva".']);
+                }
+                if (!in_array($datiFinaliPerUpdate['fase_asta_corrente'], ['PRE_ASTA', 'P'])) {
+                    $datiFinaliPerUpdate['fase_asta_corrente'] = 'P';
+                }
+                
+                $crediti = $datiFinaliPerUpdate['crediti_iniziali_lega'];
+                User::query()->update([
+                    'crediti_iniziali_squadra' => $crediti,
+                    'crediti_rimanenti' => $crediti,
+                    'sostituzioni_stagionali_usate' => 0
+                ]);
+                
+                GiocatoreAcquistato::whereHas('calciatore', function ($query) use ($tagListaPerOperazioni) {
+                    $query->where('tag_lista_inserimento', $tagListaPerOperazioni);
+                })->delete();
+                
+                ChiamataAsta::whereIn('stato_chiamata', ['in_attesa_admin', 'in_asta_tap_live'])
+                ->where('tag_lista_calciatori', $tagListaPerOperazioni)
+                ->update(['stato_chiamata' => 'annullata_admin', 'timestamp_fine_tap_prevista' => null]);
+                
+                $impostazioni->fill($datiFinaliPerUpdate);
+                if ($impostazioni->usa_ordine_chiamata) {
+                    $impostazioni->avanzaTurnoChiamata(null);
+                    $datiFinaliPerUpdate['prossimo_turno_chiamata_user_id'] = $impostazioni->prossimo_turno_chiamata_user_id;
+                } else {
+                    $datiFinaliPerUpdate['prossimo_turno_chiamata_user_id'] = null;
+                }
+                $messaggioSuccesso = 'ASTA RESETTATA (per il tag '.$tagListaPerOperazioni.'): Crediti, rose, sostituzioni usate azzerate. Chiamate TAP annullate. Fase: ' . $this->getNomeFaseCompleto($datiFinaliPerUpdate['fase_asta_corrente']) . '.';
+                Log::info("RESET ASTA ESEGUITO: " . $messaggioSuccesso);
+            } else {
+                $impostazioni->fill($datiFinaliPerUpdate);
+                
+                if ($datiFinaliPerUpdate['usa_ordine_chiamata']) {
+                    $prossimoTurnoDalForm = $validatedData['prossimo_turno_chiamata_user_id'] ?? null;
+                    if (($impostazioni->wasChanged('usa_ordine_chiamata') && $datiFinaliPerUpdate['usa_ordine_chiamata']) ||
+                        ($faseAstaAttualeDB !== $nuovaFaseAstaRichiesta && $datiFinaliPerUpdate['usa_ordine_chiamata']) ||
+                        (is_null($impostazioni->getOriginal('prossimo_turno_chiamata_user_id')) && $datiFinaliPerUpdate['usa_ordine_chiamata']) ||
+                        ($prossimoTurnoDalForm && $prossimoTurnoDalForm != $impostazioni->getOriginal('prossimo_turno_chiamata_user_id'))
+                        ) {
+                            if ($prossimoTurnoDalForm && $prossimoTurnoDalForm != $impostazioni->getOriginal('prossimo_turno_chiamata_user_id')) {
+                                // $datiFinaliPerUpdate['prossimo_turno_chiamata_user_id'] è già settato da $validatedData
+                                Log::info("Ordine chiamata: prossimo turno FORZATO dall'admin a ID: " . $datiFinaliPerUpdate['prossimo_turno_chiamata_user_id']);
+                            } else {
+                                $impostazioni->avanzaTurnoChiamata(null);
+                                $datiFinaliPerUpdate['prossimo_turno_chiamata_user_id'] = $impostazioni->prossimo_turno_chiamata_user_id;
+                                Log::info("Ordine chiamata: prossimo turno ricalcolato/inizializzato. Prossimo chiamante ID: " . ($datiFinaliPerUpdate['prossimo_turno_chiamata_user_id'] ?? 'Nessuno'));
+                            }
+                        } else if ($datiFinaliPerUpdate['usa_ordine_chiamata']){
+                            $datiFinaliPerUpdate['prossimo_turno_chiamata_user_id'] = $validatedData['prossimo_turno_chiamata_user_id'];
+                        }
+                } else {
+                    $datiFinaliPerUpdate['prossimo_turno_chiamata_user_id'] = null;
+                    Log::info("Ordine chiamata disattivato. Prossimo chiamante resettato a null.");
+                }
+            }
+            
+            $impostazioni->update($datiFinaliPerUpdate);
+            
+            DB::commit();
+            return redirect()->route('admin.impostazioni.index')->with('success', $messaggioSuccesso);
+            
+        } catch (Exception $e) {
+            DB::rollBack();
+            Log::error("Errore aggiornamento impostazioni o ordine squadre: " . $e->getMessage(), ['exception' => $e]);
+            return redirect()->route('admin.impostazioni.index')->withInput()->with('error', 'Errore durante il salvataggio: ' . $e->getMessage());
+        }
     }
-    // ---- Metodi precedentemente in AdminRosterController ----
-    // Li includo qui assumendo che tu voglia consolidare.
-    // Assicurati che le rotte in web.php puntino a AdminController::class per queste azioni.
-    
     public function visualizzaRoseSquadre()
     {
         $squadre = User::with(['giocatoriAcquistati.calciatore']) // Eager load per performance
@@ -1003,32 +1058,57 @@ class AdminController extends Controller
                 $prezzoNuovoAcquistoBloccatoPHP = true;
                 $modalitaSostituzionePHP = 'CONCLUSA';
             } elseif ($faseAstaCorrentePHP === 'SVINCOLI_STAGIONALI') {
-                $prezzoNuovoAcquistoBloccatoPHP = true; // Anche qui il prezzo IN è ereditato
+                $prezzoNuovoAcquistoBloccatoPHP = true;
                 $modalitaSostituzionePHP = 'STAGIONALE';
             }
         } else {
-            // ... (logica per $messaggioBloccoPHP come prima)
             $messaggioBloccoPHP = "La funzionalità di sostituzione diretta non è attiva per la fase asta corrente ({$faseAstaCorrentePHP}).";
         }
         
-        $calciatoriDisponibili = collect();
+        $calciatoriDisponibili = collect(); // Inizializza
         if ($sostituzioneAbilitataPHP) {
-            // ... (logica per caricare $calciatoriDisponibili come prima) ...
+            // === INIZIO LOGICA AGGIUNTA PER CARICARE I CALCIATORI DISPONIBILI ===
+            $queryCalciatori = Calciatore::where('attivo', true);
+            if ($tagAttivo) {
+                $queryCalciatori->where('tag_lista_inserimento', $tagAttivo);
+            }
+            
+            // Ottieni gli ID dei calciatori già acquistati da QUALSIASI squadra per il tag attivo
+            $idsCalciatoriGiaAcquistatiThisTagQuery = GiocatoreAcquistato::query();
+            if ($tagAttivo) {
+                $idsCalciatoriGiaAcquistatiThisTagQuery->whereHas('calciatore', function($q) use ($tagAttivo) {
+                    $q->where('tag_lista_inserimento', $tagAttivo);
+                });
+            }
+            $idsCalciatoriGiaAcquistatiThisTag = $idsCalciatoriGiaAcquistatiThisTagQuery->pluck('calciatore_id')->all();
+            
+            if (!empty($idsCalciatoriGiaAcquistatiThisTag)) {
+                $queryCalciatori->whereNotIn('id', $idsCalciatoriGiaAcquistatiThisTag);
+            }
+            
+            // Seleziona solo i campi necessari per ridurre il payload
+            $calciatoriDisponibili = $queryCalciatori
+            ->select('id', 'nome_completo', 'ruolo', 'squadra_serie_a', 'quotazione_iniziale')
+            ->orderBy('ruolo') // Opzionale: pre-ordina per ruolo
+            ->orderBy('nome_completo')
+            ->get();
+            // === FINE LOGICA AGGIUNTA ===
         }
         
+        //dd(session()->all());
         return view('admin.rose.sostituisci', [
             'squadre' => $squadre,
             'impostazioniLega' => $impostazioniLega,
             'tagAttivo' => $tagAttivo,
-            'calciatoriDisponibili' => $calciatoriDisponibili,
-            'faseAstaCorrente' => $faseAstaCorrentePHP, // Passa con questo nome
-            'sostituzioneAbilitata' => $sostituzioneAbilitataPHP, // Passa con questo nome
-            'prezzoInBloccato' => $prezzoNuovoAcquistoBloccatoPHP, // Passa con questo nome
+            'calciatoriDisponibili' => $calciatoriDisponibili, // Ora $calciatoriDisponibili è popolato
+            'faseAstaCorrente' => $faseAstaCorrentePHP,
+            'sostituzioneAbilitata' => $sostituzioneAbilitataPHP,
+            'prezzoInBloccato' => $prezzoNuovoAcquistoBloccatoPHP,
             'messaggioBlocco' => $messaggioBloccoPHP,
-            'modalitaSostituzione' => $modalitaSostituzionePHP // Passa con questo nome
+            'modalitaSostituzione' => $modalitaSostituzionePHP
         ]);
     }
-    // app/Http/Controllers/AdminController.php
+    
     public function handleSostituzione(Request $request)
     {
         $impostazioniLega = ImpostazioneLega::firstOrFail();
@@ -1058,30 +1138,55 @@ class AdminController extends Controller
         $prezzoNuovoAcquistoInput = (int)$validated['prezzo_nuovo_acquisto'];
         $prezzoGiocatoreSvincolatoOriginale = $acquistoDaRimuovere->prezzo_acquisto;
         
-        // Validazioni specifiche
-        if ($acquistoDaRimuovere->user_id != $squadra->id) { /* ... errore ... */ }
-        if ($calciatoreDaSvincolare->ruolo !== $calciatoreDaAcquistare->ruolo) { /* ... errore ... */ }
+        if (!$calciatoreDaSvincolare) { // Aggiunto controllo per sicurezza
+            return redirect()->back()->withInput()->with('error', 'Errore: Dati del giocatore da svincolare mancanti.');
+        }
+        if (!$calciatoreDaAcquistare) { // Aggiunto controllo per sicurezza
+            return redirect()->back()->withInput()->with('error', 'Errore: Dati del giocatore da acquistare mancanti.');
+        }
+        
+        
+        if ($acquistoDaRimuovere->user_id != $squadra->id) {
+            return redirect()->back()->withInput()->with('error', 'Errore: Il giocatore da svincolare non appartiene alla squadra selezionata.');
+        }
+        if ($calciatoreDaSvincolare->ruolo !== $calciatoreDaAcquistare->ruolo) {
+            return redirect()->back()->withInput()->with('error', 'Errore: Il giocatore da acquistare deve avere lo stesso ruolo del giocatore svincolato.');
+        }
+        // Non si può acquistare lo stesso giocatore che si sta svincolando
+        if ($calciatoreDaSvincolare->id === $calciatoreDaAcquistare->id) {
+            return redirect()->back()->withInput()->with('error', 'Non puoi sostituire un giocatore con se stesso.');
+        }
+        
         
         $prezzoEffettivoNuovoAcquisto = $prezzoNuovoAcquistoInput;
-        $creditiNettiOperazione = 0; // Quanto cambia il saldo crediti della squadra
+        $creditiNettiOperazione = 0;
         
         if ($modalitaSostituzione === 'CONCLUSA') {
             if ($prezzoNuovoAcquistoInput !== $prezzoGiocatoreSvincolatoOriginale) {
                 return redirect()->back()->withInput()->with('error', "Errore Fase CONCLUSA: Prezzo IN ({$prezzoNuovoAcquistoInput}cr) deve essere uguale a prezzo OUT ({$prezzoGiocatoreSvincolatoOriginale}cr).");
             }
-            $prezzoEffettivoNuovoAcquisto = $prezzoGiocatoreSvincolatoOriginale; // Giocatore IN eredita il prezzo
-            $creditiNettiOperazione = 0; // Saldo crediti invariato
+            $prezzoEffettivoNuovoAcquisto = $prezzoGiocatoreSvincolatoOriginale;
+            $creditiNettiOperazione = 0;
         } elseif ($modalitaSostituzione === 'STAGIONALE') {
             if ($prezzoNuovoAcquistoInput !== $prezzoGiocatoreSvincolatoOriginale) {
                 return redirect()->back()->withInput()->with('error', "Errore Fase SVINCOLI STAGIONALI: Prezzo IN ({$prezzoNuovoAcquistoInput}cr) deve essere uguale al valore ereditato ({$prezzoGiocatoreSvincolatoOriginale}cr).");
             }
+            // ==== CONTROLLO LIMITE SOSTITUZIONI STAGIONALI ====
             if ($impostazioniLega->max_sostituzioni_stagionali > 0 && $squadra->sostituzioni_stagionali_usate >= $impostazioniLega->max_sostituzioni_stagionali) {
-                throw new Exception("Limite massimo di {$impostazioniLega->max_sostituzioni_stagionali} sostituzioni stagionali raggiunto per la squadra {$squadra->name}.");
+                Log::warning("Tentativo di sostituzione stagionale per {$squadra->name} fallito: limite di {$impostazioniLega->max_sostituzioni_stagionali} sostituzioni raggiunto.");
+                
+                $maxSost = $impostazioniLega->max_sostituzioni_stagionali;
+                // Assicuriamoci che il nome della squadra sia una stringa UTF-8 pulita
+                $nomeSquadra = mb_convert_encoding($squadra->name, 'UTF-8', 'UTF-8');
+                
+                $messaggioPulito = "Limite massimo di {$maxSost} sostituzioni stagionali già raggiunto per la squadra {$nomeSquadra}.";
+                $messaggioPulito = mb_convert_encoding($messaggioPulito, 'UTF-8', 'UTF-8');
+                return redirect()->back()->withInput()->with('error', (string) $messaggioPulito);
             }
-            $prezzoEffettivoNuovoAcquisto = $prezzoGiocatoreSvincolatoOriginale; // Giocatore IN eredita il prezzo
-            $creditiNettiOperazione = 0; // Saldo crediti invariato per l'operazione di sostituzione
+            // =================================================
+            $prezzoEffettivoNuovoAcquisto = $prezzoGiocatoreSvincolatoOriginale;
+            $creditiNettiOperazione = 0;
         } else {
-            // Caso di altre modalità future dove il prezzo è libero
             $creditiNettiOperazione = $prezzoGiocatoreSvincolatoOriginale - $prezzoEffettivoNuovoAcquisto;
         }
         
@@ -1089,22 +1194,52 @@ class AdminController extends Controller
         try {
             $nuoviCreditiSquadra = $squadra->crediti_rimanenti + $creditiNettiOperazione;
             if ($nuoviCreditiSquadra < 0) {
-                throw new Exception("Crediti insufficienti per completare la sostituzione. Saldo risulterebbe: {$nuoviCreditiSquadra}cr.");
+                DB::rollBack(); // Importante fare rollback prima del redirect
+                return redirect()->back()->withInput()->with('error', "Crediti insufficienti per completare la sostituzione. Saldo risulterebbe: {$nuoviCreditiSquadra}cr.");
             }
-            // ... (verifica giocatore IN disponibile, controllo banco saltato come prima) ...
-            $giaAcquistatoDaAltriQuery = GiocatoreAcquistato::where('calciatore_id', $calciatoreDaAcquistare->id)->where('user_id', '!=', $squadra->id);
+            
+            // Verifica che il giocatore "IN" non sia già in rosa alla squadra corrente (oltre a quello che esce)
+            $calciatoreInPresenteInRosa = GiocatoreAcquistato::where('user_id', $squadra->id)
+            ->where('calciatore_id', $calciatoreDaAcquistare->id)
+            ->where('id', '!=', $acquistoDaRimuovere->id) // Escludi il record che stiamo per rimuovere, se per caso l'ID calciatore fosse lo stesso (non dovrebbe essere)
+            ->exists();
+            
+            if ($calciatoreInPresenteInRosa) {
+                DB::rollBack();
+                return redirect()->back()->withInput()->with('error', "Il calciatore {$calciatoreDaAcquistare->nome_completo} è già presente nella rosa di {$squadra->name}.");
+            }
+            
+            
+            $giaAcquistatoDaAltriQuery = GiocatoreAcquistato::where('calciatore_id', $calciatoreDaAcquistare->id)
+            ->where('user_id', '!=', $squadra->id); // Escludi la squadra corrente dalla verifica
             if ($tagAttivo) {
                 $giaAcquistatoDaAltriQuery->whereHas('calciatore', fn($q) => $q->where('tag_lista_inserimento', $tagAttivo));
             }
             if ($giaAcquistatoDaAltriQuery->exists()) {
-                throw new Exception("Il calciatore {$calciatoreDaAcquistare->nome_completo} è già in rosa ad un'altra squadra per il tag '$tagAttivo'.");
+                DB::rollBack();
+                return redirect()->back()->withInput()->with('error', "Il calciatore {$calciatoreDaAcquistare->nome_completo} è già in rosa ad un'altra squadra per il tag '$tagAttivo'.");
             }
             
-            $numGiocatoriAttualiRosa = $squadra->giocatoriAcquistati()->whereHas('calciatore', fn($q) => $q->where('tag_lista_inserimento', $tagAttivo))->count();
+            $numGiocatoriAttualiRosa = $squadra->giocatoriAcquistati()
+            ->whereHas('calciatore', fn($q) => $q->where('tag_lista_inserimento', $tagAttivo))
+            ->where('id', '!=', $acquistoDaRimuovere->id) // Non contare quello che sta per essere svincolato
+            ->count();
             $limiteGiocatoriSistema = $impostazioniLega->num_portieri + $impostazioniLega->num_difensori + $impostazioniLega->num_centrocampisti + $impostazioniLega->num_attaccanti;
-            $slotAncoraDaRiempire = $limiteGiocatoriSistema - $numGiocatoriAttualiRosa;
-            if ($slotAncoraDaRiempire > 0 && $nuoviCreditiSquadra < $slotAncoraDaRiempire) {
-                throw new Exception("BANCO SALTATO! Dopo la sostituzione, la squadra {$squadra->name} avrebbe {$nuoviCreditiSquadra}cr con {$slotAncoraDaRiempire} slot da riempire.");
+            
+            // La logica del banco saltato in sostituzione è leggermente diversa:
+            // si considera che un giocatore esce e uno entra, quindi il numero totale di giocatori in rosa NON cambia.
+            // Dobbiamo solo assicurarci che i crediti siano sufficienti per gli slot *ipoteticamente vuoti* SE ce ne fossero.
+            // Ma siccome è una sostituzione 1-a-1, il numero di slot totali da riempire non cambia.
+            // La verifica importante è che $nuoviCreditiSquadra non sia negativo.
+            // E se la rosa NON fosse piena, che $nuoviCreditiSquadra sia >= slot ancora da riempire.
+            $slotDaRiempire = $limiteGiocatoriSistema - ($numGiocatoriAttualiRosa); // Slot vuoti *dopo* lo svincolo del giocatore OUT e *prima* dell'acquisto del giocatore IN
+            // dato che la sostituzione è 1 a 1, il numero di giocatori totali non cambia
+            // quindi $numGiocatoriAttualiRosa è il numero di giocatori che la squadra avrà *senza* il giocatore OUT
+            // e *senza* ancora il giocatore IN.
+            
+            if ($slotDaRiempire > 0 && $nuoviCreditiSquadra < $slotDaRiempire) {
+                DB::rollBack();
+                return redirect()->back()->withInput()->with('error', "BANCO SALTATO! Dopo la sostituzione, la squadra {$squadra->name} avrebbe {$nuoviCreditiSquadra}cr con {$slotDaRiempire} slot ancora da riempire.");
             }
             
             
@@ -1112,7 +1247,7 @@ class AdminController extends Controller
             GiocatoreAcquistato::create([
                 'user_id' => $squadra->id,
                 'calciatore_id' => $calciatoreDaAcquistare->id,
-                'prezzo_acquisto' => $prezzoEffettivoNuovoAcquisto, // Salva il prezzo corretto
+                'prezzo_acquisto' => $prezzoEffettivoNuovoAcquisto,
                 'ruolo_al_momento_acquisto' => $calciatoreDaAcquistare->ruolo,
             ]);
             
@@ -1126,10 +1261,10 @@ class AdminController extends Controller
             return redirect()->route('admin.rose.squadre.index')->with('success', "Sostituzione completata per {$squadra->name}: {$calciatoreDaSvincolare->nome_completo} (Valore: {$prezzoGiocatoreSvincolatoOriginale}) con {$calciatoreDaAcquistare->nome_completo} (Nuovo Valore/Costo: {$prezzoEffettivoNuovoAcquisto}). Crediti rimanenti: {$squadra->crediti_rimanenti}.");
         } catch (Exception $e) {
             DB::rollBack();
-            return redirect()->back()->withInput()->with('error', 'Errore durante la sostituzione: ' . $e->getMessage());
+            Log::error("Errore durante la sostituzione per squadra ID {$squadra->id}: " . $e->getMessage());
+            return redirect()->back()->withInput()->with('error', 'Errore tecnico durante la sostituzione: ' . $e->getMessage());
         }
     }
-    
     public function getSquadraRosaPerSostituzione(Request $request, User $user)
         {
             $tagAttivo = $request->query('tag_attivo');
@@ -1164,29 +1299,60 @@ class AdminController extends Controller
             $impostazioniLega = ImpostazioneLega::firstOrFail();
             $faseAstaCorrente = $impostazioniLega->fase_asta_corrente;
             
-            // Svincolo semplice permesso solo in PRE_ASTA (per errori) e CONCLUSA
-            $fasiSvincoloSemplicePermesso = ['PRE_ASTA', 'CONCLUSA'];
-            
-            if (!in_array($faseAstaCorrente, $fasiSvincoloSemplicePermesso)) {
-                Log::warning("Admin ID ".Auth::id()." ha tentato uno svincolo semplice in fase asta non permessa: {$faseAstaCorrente}");
-                return redirect()->route('admin.rose.squadre.index')->with('error', "Lo svincolo semplice dei giocatori non è permesso nella fase asta attuale ({$faseAstaCorrente}). Utilizzare la funzione di Sostituzione se appropriata per la fase.");
+            $squadra = $giocatoreAcquistato->user;
+            $calciatore = $giocatoreAcquistato->calciatore; // Assicurati che la relazione sia caricata se necessario
+            if (!$calciatore) {
+                // Ricarica con la relazione se non presente
+                $giocatoreAcquistato->load('calciatore');
+                $calciatore = $giocatoreAcquistato->calciatore;
             }
             
-            // ... (resto della logica di svincolo come prima, che restituisce il 100% dei crediti) ...
-            $squadra = $giocatoreAcquistato->user;
-            $calciatore = $giocatoreAcquistato->calciatore;
-            $prezzoRestituito = $giocatoreAcquistato->prezzo_acquisto;
-            // ... DB::transaction, delete, update crediti, ecc. ...
+            if (!$squadra || !$calciatore) {
+                Log::error("[Admin Svincolo] Errore: Squadra o Calciatore non trovati per GiocatoreAcquistato ID: {$giocatoreAcquistato->id}");
+                return redirect()->route('admin.rose.squadre.index')->with('error', 'Errore: Dati del giocatore o della squadra mancanti.');
+            }
+            
+            Log::info("Admin ID ".Auth::id()." sta tentando uno svincolo per GiocatoreAcquistato ID: {$giocatoreAcquistato->id} (Calciatore: {$calciatore->nome_completo}, Squadra: {$squadra->name}). Fase asta attuale: {$faseAstaCorrente}");
+            
+            $prezzoAcquistoOriginale = $giocatoreAcquistato->prezzo_acquisto;
+            $creditiDaRestituire = 0;
+            $messaggioLogOperazione = "";
+            
+            // Determina i crediti da restituire in base alla fase
+            if ($faseAstaCorrente === 'ASTA_RIPARAZIONE' || $faseAstaCorrente === 'SVINCOLI_STAGIONALI' /* O una fase dedicata come 'PRE_RIPARAZIONE' */) {
+                $percentualeRecupero = $impostazioniLega->percentuale_crediti_svincolo_riparazione;
+                $creditiDaRestituire = floor(($prezzoAcquistoOriginale * $percentualeRecupero) / 100);
+                $messaggioLogOperazione = "Svincolo in fase '{$faseAstaCorrente}'. Percentuale recupero: {$percentualeRecupero}%. Crediti restituiti: {$creditiDaRestituire} su {$prezzoAcquistoOriginale}.";
+                Log::info($messaggioLogOperazione);
+                
+            } elseif (in_array($faseAstaCorrente, ['PRE_ASTA', 'CONCLUSA'])) {
+                $creditiDaRestituire = $prezzoAcquistoOriginale; // 100%
+                $messaggioLogOperazione = "Svincolo in fase '{$faseAstaCorrente}'. Restituzione 100%. Crediti restituiti: {$creditiDaRestituire}.";
+                Log::info($messaggioLogOperazione);
+            } else {
+                Log::warning("Admin ID ".Auth::id()." ha tentato uno svincolo per GiocatoreAcquistato ID: {$giocatoreAcquistato->id} in fase asta non permessa per svincoli diretti: {$faseAstaCorrente}");
+                return redirect()->route('admin.rose.squadre.index')->with('error', "Lo svincolo dei giocatori non è permesso nella fase asta attuale ({$faseAstaCorrente}). Utilizzare la funzione di Sostituzione se appropriata.");
+            }
+            
             DB::beginTransaction();
             try {
-                $squadra->crediti_rimanenti += $prezzoRestituito;
+                $squadra->crediti_rimanenti += $creditiDaRestituire;
+                // In caso di SVINCOLI_STAGIONALI, uno svincolo semplice NON dovrebbe consumare uno slot sostituzione.
+                // Gli slot si consumano solo con l'operazione di "sostituzione" (out + in).
+                // Se però volessi che anche lo svincolo semplice in questa fase conti, dovresti aggiungere logica qui.
                 $squadra->save();
+                
                 $giocatoreAcquistato->delete();
+                
                 DB::commit();
-                return redirect()->route('admin.rose.squadre.index')->with('success', "Giocatore {$calciatore->nome_completo} svincolato con successo da {$squadra->name}. Crediti restituiti: {$prezzoRestituito}.");
+                Log::info("SVINCOLO COMPLETATO: Admin ID ".Auth::id().". Giocatore {$calciatore->nome_completo} (ID: {$calciatore->id}) svincolato da {$squadra->name} (ID: {$squadra->id}). " . $messaggioLogOperazione);
+                return redirect()->route('admin.rose.squadre.index')
+                ->with('success', "Giocatore {$calciatore->nome_completo} svincolato con successo da {$squadra->name}. Crediti restituiti: {$creditiDaRestituire}.");
+                
             } catch (Exception $e) {
                 DB::rollBack();
-                return redirect()->route('admin.rose.squadre.index')->with('error', 'Errore durante lo svincolo: ' . $e->getMessage());
+                Log::error("Errore durante lo svincolo di GiocatoreAcquistato ID {$giocatoreAcquistato->id}: " . $e->getMessage());
+                return redirect()->route('admin.rose.squadre.index')->with('error', 'Errore tecnico durante lo svincolo: ' . $e->getMessage());
             }
         }
 }
