@@ -16,15 +16,16 @@ class User extends Authenticatable // Potrebbe implementare MustVerifyEmail se l
      * @var array<int, string>
      */
     protected $fillable = [
-        'name',                     // Nome Squadra
+        'name', // Nome Squadra
         'email',
         'password',
         'is_admin',
         'crediti_iniziali_squadra',
         'crediti_rimanenti',
-        'nome_proprietario',        // NUOVO
-        'phone_number',             // NUOVO
-        'ordine_chiamata',          // NUOVO
+        'nome_proprietario',
+        'phone_number',
+        'ordine_chiamata',
+        'sostituzioni_stagionali_usate',
     ];
     
     /**
@@ -50,7 +51,8 @@ class User extends Authenticatable // Potrebbe implementare MustVerifyEmail se l
             'is_admin' => 'boolean',
             'crediti_iniziali_squadra' => 'integer',
             'crediti_rimanenti' => 'integer',
-            'ordine_chiamata' => 'integer', // NUOVO
+            'ordine_chiamata' => 'integer',
+            'sostituzioni_stagionali_usate' => 'integer',
         ];
     }
     // Se usi Laravel < 10, la sintassi per $casts è:

@@ -16,11 +16,11 @@
                             <p><strong>Lista Calciatori Attiva:</strong> {{ $impostazioniLega->tag_lista_attiva ?? 'Non definita' }}</p>
                             <p><strong>Crediti Iniziali Lega:</strong> {{ $impostazioniLega->crediti_iniziali_lega }}</p>
                             <div class="mt-4">
-                                <a href="{{ route('admin.settings.index') }}" class="text-sm text-indigo-600 dark:text-indigo-400 hover:underline">Modifica Impostazioni &raquo;</a>
+                                <a href="{{ route('admin.impostazioni.index') }}" class="text-sm text-indigo-600 dark:text-indigo-400 hover:underline">Modifica Impostazioni &raquo;</a>
                             </div>
                         @else
                             <p class="text-red-500 dark:text-red-400">Impostazioni della lega non ancora configurate.</p>
-                             <a href="{{ route('admin.settings.index') }}" class="text-sm text-indigo-600 dark:text-indigo-400 hover:underline">Configura ora &raquo;</a>
+                             <a href="{{ route('admin.impostazioni.index') }}" class="text-sm text-indigo-600 dark:text-indigo-400 hover:underline">Configura ora &raquo;</a>
                         @endif
                     </div>
                 </div>
@@ -40,9 +40,9 @@
                             <li><a href="{{ route('admin.giocatori.index') }}" class="text-indigo-600 dark:text-indigo-400 hover:underline">Gestione Calciatori</a></li>
                             <li><a href="{{ route('admin.giocatori.import.show') }}" class="text-indigo-600 dark:text-indigo-400 hover:underline">Importa Calciatori da CSV</a></li>
                             <li><a href="{{ route('admin.giocatori.assegna.show') }}" class="text-indigo-600 dark:text-indigo-400 hover:underline">Assegna Giocatore Manualmente</a></li>
-                            <li><a href="{{ route('admin.users.index') }}" class="text-indigo-600 dark:text-indigo-400 hover:underline">Gestione Utenti/Squadre</a></li>
+                            <li><a href="{{ route('admin.utenti.index') }}" class="text-indigo-600 dark:text-indigo-400 hover:underline">Gestione Utenti/Squadre</a></li>
                             <li><a href="{{ route('admin.rose.squadre.index') }}" class="text-indigo-600 dark:text-indigo-400 hover:underline">Visualizza Rose Squadre</a></li>
-                            <li><a href="{{ route('admin.settings.index') }}" class="font-bold text-green-600 dark:text-green-400 hover:underline">Vai a Impostazioni Lega/Asta</a></li>
+                            <li><a href="{{ route('admin.impostazioni.index') }}" class="font-bold text-green-600 dark:text-green-400 hover:underline">Vai a Impostazioni Lega/Asta</a></li>
                         </ul>
                     </div>
                 </div>

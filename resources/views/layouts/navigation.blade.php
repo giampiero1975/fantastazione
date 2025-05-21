@@ -1,3 +1,4 @@
+{{-- layouts/navigation.blade.php --}}
 <nav x-data="{ open: false }" class="bg-white dark:bg-gray-800 border-b border-gray-100 dark:border-gray-700">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div class="flex justify-between h-16">
@@ -15,7 +16,6 @@
 
                     {{-- ===== BLOCCO LINK ASTA LIVE (per tutti gli utenti, admin inclusi) ===== --}}
                     @auth {{-- Assicura che l'utente sia loggato --}}
-                        {{-- La variabile $mostraLinkAstaLiveGlobal viene ora fornita da NavigationComposer --}}
                         @if (isset($mostraLinkAstaLiveGlobal) && $mostraLinkAstaLiveGlobal)
                             <x-nav-link :href="route('asta.live')" :active="request()->routeIs('asta.live')">
                                 {{ __('Asta Live') }}
@@ -26,11 +26,37 @@
 
                     {{-- ===== BLOCCO LINK ADMIN (SCHERMI GRANDI) CON DROPDOWN ===== --}}
                     @if (Auth::check() && Auth::user()->is_admin)
+                        {{-- Dropdown Gestione Lega --}}
                         <div class="hidden sm:flex sm:items-center sm:ms-6">
                             <x-dropdown align="left" width="48">
                                 <x-slot name="trigger">
-                                    <button class="inline-flex items-center px-1 pt-1 border-b-2 {{ request()->routeIs('admin.giocatori.index*') || request()->routeIs('admin.giocatori.import.show*') || request()->routeIs('admin.users.index*') ? 'border-indigo-400 dark:border-indigo-600 text-gray-900 dark:text-gray-100' : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-700' }} text-sm font-medium leading-5 focus:outline-none focus:text-gray-700 dark:focus:text-gray-300 focus:border-gray-300 dark:focus:border-gray-700 transition duration-150 ease-in-out">
-                                        <div>{{ __('Gestione Dati') }}</div>
+                                    <button class="inline-flex items-center px-1 pt-1 border-b-2 {{ request()->routeIs('admin.impostazioni.*') || request()->routeIs('admin.utenti.*') || request()->routeIs('admin.mia_squadra.dashboard') ? 'border-indigo-400 dark:border-indigo-600 text-gray-900 dark:text-gray-100' : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-700' }} text-sm font-medium leading-5 focus:outline-none focus:text-gray-700 dark:focus:text-gray-300 focus:border-gray-300 dark:focus:border-gray-700 transition duration-150 ease-in-out">
+                                        <div>{{ __('Gestione Lega') }}</div>
+                                        <div class="ms-1">
+                                            <svg class="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" /></svg>
+                                        </div>
+                                    </button>
+                                </x-slot>
+                                <x-slot name="content">
+                                    <x-dropdown-link :href="route('admin.impostazioni.index')">
+                                        {{ __('Impostazioni Lega/Asta') }}
+                                    </x-dropdown-link>
+                                    <x-dropdown-link :href="route('admin.utenti.index')">
+                                        {{ __('Gestione Squadre/Utenti') }}
+                                    </x-dropdown-link>
+                                    <x-dropdown-link :href="route('admin.mia_squadra.dashboard')">
+                                        {{ __('La Mia Squadra (Admin)') }}
+                                    </x-dropdown-link>
+                                </x-slot>
+                            </x-dropdown>
+                        </div>
+
+                        {{-- Dropdown Gestione Asta & Giocatori --}}
+                        <div class="hidden sm:flex sm:items-center sm:ms-6">
+                             <x-dropdown align="left" width="48">
+                                <x-slot name="trigger">
+                                     <button class="inline-flex items-center px-1 pt-1 border-b-2 {{ request()->routeIs('admin.giocatori.*') || request()->routeIs('admin.rose.*') || request()->routeIs('admin.asta.chiamate.*') ? 'border-indigo-400 dark:border-indigo-600 text-gray-900 dark:text-gray-100' : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-700' }} text-sm font-medium leading-5 focus:outline-none focus:text-gray-700 dark:focus:text-gray-300 focus:border-gray-300 dark:focus:border-gray-700 transition duration-150 ease-in-out">
+                                        <div>{{ __('Asta & Giocatori') }}</div>
                                         <div class="ms-1">
                                             <svg class="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" /></svg>
                                         </div>
@@ -43,38 +69,17 @@
                                     <x-dropdown-link :href="route('admin.giocatori.import.show')">
                                         {{ __('Importa CSV Calciatori') }}
                                     </x-dropdown-link>
-                                    <x-dropdown-link :href="route('admin.users.index')">
-                                        {{ __('Gestione Squadre/Utenti') }}
-                                    </x-dropdown-link>
-                                </x-slot>
-                            </x-dropdown>
-                        </div>
-
-                        <div class="hidden sm:flex sm:items-center sm:ms-6">
-                             <x-dropdown align="left" width="48">
-                                <x-slot name="trigger">
-                                     <button class="inline-flex items-center px-1 pt-1 border-b-2 {{ request()->routeIs('admin.settings.index*') || request()->routeIs('admin.giocatori.assegna.show*') || request()->routeIs('admin.rose.squadre.index*') || request()->routeIs('admin.mia_squadra.dashboard*') || request()->routeIs('admin.asta.chiamate.gestione*') ? 'border-indigo-400 dark:border-indigo-600 text-gray-900 dark:text-gray-100' : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-700' }} text-sm font-medium leading-5 focus:outline-none focus:text-gray-700 dark:focus:text-gray-300 focus:border-gray-300 dark:focus:border-gray-700 transition duration-150 ease-in-out">
-                                        <div>{{ __('Configurazione Asta') }}</div>
-                                        <div class="ms-1">
-                                            <svg class="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" /></svg>
-                                        </div>
-                                    </button>
-                                </x-slot>
-                                <x-slot name="content">
-                                    <x-dropdown-link :href="route('admin.settings.index')">
-                                        {{ __('Impostazioni Lega/Asta') }}
-                                    </x-dropdown-link>
                                     <x-dropdown-link :href="route('admin.giocatori.assegna.show')">
                                         {{ __('Assegna Giocatore Manualmente') }}
                                     </x-dropdown-link>
                                     <x-dropdown-link :href="route('admin.rose.squadre.index')">
                                         {{ __('Visualizza Rose Squadre') }}
                                     </x-dropdown-link>
-                                    <x-dropdown-link :href="route('admin.mia_squadra.dashboard')">
-                                        {{ __('La Mia Squadra (Admin)') }}
-                                    </x-dropdown-link>
                                     <x-dropdown-link :href="route('admin.asta.chiamate.gestione')">
-                                        {{ __('Offerte TAP') }}
+                                        {{ __('Gestione Chiamate TAP') }}
+                                    </x-dropdown-link>
+                                    <x-dropdown-link :href="route('admin.rose.sostituisci.show')">
+                                        {{ __('Sostituzione') }}
                                     </x-dropdown-link>
                                 </x-slot>
                             </x-dropdown>
@@ -137,7 +142,6 @@
 
             {{-- ===== BLOCCO LINK ASTA LIVE (MENU RESPONSIVE) ===== --}}
             @auth
-                {{-- La variabile $mostraLinkAstaLiveGlobal viene ora fornita da NavigationComposer --}}
                 @if (isset($mostraLinkAstaLiveGlobal) && $mostraLinkAstaLiveGlobal)
                     <x-responsive-nav-link :href="route('asta.live')" :active="request()->routeIs('asta.live')">
                         {{ __('Asta Live') }}
@@ -149,22 +153,27 @@
 
         {{-- ===== BLOCCO LINK ADMIN (MENU RESPONSIVE) ===== --}}
         @if (Auth::check() && Auth::user()->is_admin)
+            {{-- Dropdown Gestione Lega - Responsive --}}
             <div class="mt-3 space-y-1 border-t border-gray-200 dark:border-gray-700 pt-3">
-                <div class="px-4 font-medium text-base text-gray-800 dark:text-gray-200 mb-1">{{ __('Gestione Dati') }}</div>
-                <x-responsive-nav-link :href="route('admin.giocatori.index')" :active="request()->routeIs('admin.giocatori.index')">
+                <div class="px-4 font-medium text-base text-gray-800 dark:text-gray-200 mb-1">{{ __('Gestione Lega') }}</div>
+                <x-responsive-nav-link :href="route('admin.impostazioni.index')" :active="request()->routeIs('admin.impostazioni.*')">
+                    {{ __('Impostazioni Lega/Asta') }}
+                </x-responsive-nav-link>
+                <x-responsive-nav-link :href="route('admin.utenti.index')" :active="request()->routeIs('admin.utenti.*')">
+                    {{ __('Gestione Squadre/Utenti') }}
+                </x-responsive-nav-link>
+                 <x-responsive-nav-link :href="route('admin.mia_squadra.dashboard')" :active="request()->routeIs('admin.mia_squadra.dashboard')">
+                    {{ __('La Mia Squadra (Admin)') }}
+                </x-responsive-nav-link>
+            </div>
+            {{-- Dropdown Gestione Asta & Giocatori - Responsive --}}
+            <div class="mt-3 space-y-1 border-t border-gray-200 dark:border-gray-700 pt-3">
+                 <div class="px-4 font-medium text-base text-gray-800 dark:text-gray-200 mb-1">{{ __('Asta & Giocatori') }}</div>
+                 <x-responsive-nav-link :href="route('admin.giocatori.index')" :active="request()->routeIs('admin.giocatori.index')">
                     {{ __('Elenco Calciatori') }}
                 </x-responsive-nav-link>
                 <x-responsive-nav-link :href="route('admin.giocatori.import.show')" :active="request()->routeIs('admin.giocatori.import.show')">
                     {{ __('Importa CSV Calciatori') }}
-                </x-responsive-nav-link>
-                <x-responsive-nav-link :href="route('admin.users.index')" :active="request()->routeIs('admin.users.index')">
-                    {{ __('Gestione Squadre/Utenti') }}
-                </x-responsive-nav-link>
-            </div>
-            <div class="mt-3 space-y-1 border-t border-gray-200 dark:border-gray-700 pt-3">
-                 <div class="px-4 font-medium text-base text-gray-800 dark:text-gray-200 mb-1">{{ __('Configurazione Asta') }}</div>
-                <x-responsive-nav-link :href="route('admin.settings.index')" :active="request()->routeIs('admin.settings.index')">
-                    {{ __('Impostazioni Lega/Asta') }}
                 </x-responsive-nav-link>
                 <x-responsive-nav-link :href="route('admin.giocatori.assegna.show')" :active="request()->routeIs('admin.giocatori.assegna.show')">
                     {{ __('Assegna Giocatore Manualmente') }}
@@ -172,11 +181,11 @@
                 <x-responsive-nav-link :href="route('admin.rose.squadre.index')" :active="request()->routeIs('admin.rose.squadre.index')">
                     {{ __('Visualizza Rose Squadre') }}
                 </x-responsive-nav-link>
-                <x-responsive-nav-link :href="route('admin.mia_squadra.dashboard')" :active="request()->routeIs('admin.mia_squadra.dashboard')">
-                    {{ __('La Mia Squadra (Admin)') }}
-                </x-responsive-nav-link>
                 <x-responsive-nav-link :href="route('admin.asta.chiamate.gestione')" :active="request()->routeIs('admin.asta.chiamate.gestione')">
-                    {{ __('Offerte TAP') }}
+                    {{ __('Gestione Chiamate TAP') }}
+                </x-responsive-nav-link>
+                <x-responsive-nav-link :href="route('admin.rose.sostituisci.show')">
+                    {{ __('Sostituzione') }}
                 </x-responsive-nav-link>
             </div>
         @endif

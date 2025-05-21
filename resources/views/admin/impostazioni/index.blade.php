@@ -31,7 +31,7 @@
                         </div>
                     @endif
 
-                    <form method="POST" action="{{ route('admin.settings.update') }}">
+                    <form method="POST" action="{{ route('admin.impostazioni.update') }}"> {{-- Assicurati che la rotta sia admin.impostazioni.update o admin.settings.update --}}
                         @csrf
 
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -105,20 +105,9 @@
                                     <x-input-label for="asta_tap_approvazione_admin_toggle" :value="__('Approvazione Admin per Asta TAP (dopo chiamata utente)')" />
                                     <div class="flex items-center mt-1">
                                         <span class="text-sm text-gray-500 dark:text-gray-400 mr-3" x-text="enabled ? 'Sì, richiesta approvazione' : 'No, avvio automatico'"></span>
-                                        <button 
-                                            type="button"
-                                            class="relative inline-flex flex-shrink-0 h-6 w-11 border-2 border-transparent rounded-full cursor-pointer transition-colors ease-in-out duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 dark:focus:ring-offset-gray-800"
-                                            :class="enabled ? 'bg-indigo-600' : 'bg-gray-200 dark:bg-gray-700'"
-                                            @click="enabled = !enabled"
-                                            role="switch"
-                                            :aria-checked="enabled.toString()"
-                                        >
+                                        <button type="button" class="relative inline-flex flex-shrink-0 h-6 w-11 border-2 border-transparent rounded-full cursor-pointer transition-colors ease-in-out duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 dark:focus:ring-offset-gray-800" :class="enabled ? 'bg-indigo-600' : 'bg-gray-200 dark:bg-gray-700'" @click="enabled = !enabled" role="switch" :aria-checked="enabled.toString()">
                                             <span class="sr-only">Usa toggle</span>
-                                            <span
-                                                aria-hidden="true"
-                                                class="pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow transform ring-0 transition ease-in-out duration-200"
-                                                :class="enabled ? 'translate-x-5' : 'translate-x-0'"
-                                            ></span>
+                                            <span aria-hidden="true" class="pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow transform ring-0 transition ease-in-out duration-200" :class="enabled ? 'translate-x-5' : 'translate-x-0'"></span>
                                         </button>
                                     </div>
                                     <input type="hidden" name="asta_tap_approvazione_admin" :value="enabled ? '1' : '0'">
@@ -132,10 +121,10 @@
                                 <h3 class="text-lg font-semibold mb-4 text-gray-700 dark:text-gray-300">Regole Rosa e Crediti</h3>
                                 <div class="mt-4">
                                     <x-input-label for="crediti_iniziali_lega" :value="__('Crediti Iniziali per Squadra')" />
-                                    <x-text-input id="crediti_iniziali_lega" class="block mt-1 w-full" type="number" name="crediti_iniziali_lega" :value="old('crediti_iniziali_lega', $impostazioni->crediti_iniziali_lega ?? 500)" required />
+                                    <x-text-input id="crediti_iniziali_lega" class="block mt-1 w-full" type="number" name="crediti_iniziali_lega" :value="old('crediti_iniziali_lega', $impostazioni->crediti_iniziali_lega ?? 500)" required min="1" />
                                     <x-input-error :messages="$errors->get('crediti_iniziali_lega')" class="mt-2" />
                                 </div>
-                                
+
                                 <h5 class="mt-6 mb-2 text-sm font-semibold text-gray-600 dark:text-gray-400">Limiti Giocatori per Ruolo:</h5>
                                 <div class="grid grid-cols-2 gap-4">
                                     <div>
@@ -160,27 +149,37 @@
                                     </div>
                                 </div>
 
+                                {{-- NUOVI CAMPI PER MERCATO STAGIONALE/RIPARAZIONE --}}
+                                <hr class="my-6 border-gray-300 dark:border-gray-700">
+                                <h4 class="text-md font-semibold mb-2 text-indigo-600 dark:text-indigo-400">Regole Mercato Stagionale/Riparazione</h4>
+
+                                <div class="mt-4">
+                                    <x-input-label for="max_sostituzioni_stagionali" :value="__('Max Sostituzioni Stagionali per Squadra')" />
+                                    <x-text-input id="max_sostituzioni_stagionali" class="block mt-1 w-full" type="number" name="max_sostituzioni_stagionali" :value="old('max_sostituzioni_stagionali', $impostazioni->max_sostituzioni_stagionali ?? 5)" required min="0" max="99" />
+                                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Numero di sostituzioni 1-a-1 permesse durante la fase 'Svincoli Stagionali'.</p>
+                                    <x-input-error :messages="$errors->get('max_sostituzioni_stagionali')" class="mt-2" />
+                                </div>
+
+                                <div class="mt-4">
+                                    <x-input-label for="percentuale_crediti_svincolo_riparazione" :value="__('Percentuale Crediti Restituiti (Svincoli Asta Riparazione %)')" />
+                                    <x-text-input id="percentuale_crediti_svincolo_riparazione" class="block mt-1 w-full" type="number" name="percentuale_crediti_svincolo_riparazione" :value="old('percentuale_crediti_svincolo_riparazione', $impostazioni->percentuale_crediti_svincolo_riparazione ?? 50)" required min="0" max="100" />
+                                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Percentuale del prezzo d'acquisto originale restituita alla squadra quando svincola un giocatore prima dell'Asta di Riparazione.</p>
+                                    <x-input-error :messages="$errors->get('percentuale_crediti_svincolo_riparazione')" class="mt-2" />
+                                </div>
+                                {{-- FINE NUOVI CAMPI --}}
+
+
                                 <hr class="my-6 border-gray-300 dark:border-gray-700">
                                 <h4 class="text-md font-semibold mb-2 text-indigo-600 dark:text-indigo-400">Ordine di Chiamata</h4>
-                                
+
                                 <div class="mt-4" x-data="{ enabled: {{ old('usa_ordine_chiamata', $impostazioni->usa_ordine_chiamata ?? false) ? 'true' : 'false' }} }">
+                                   {{-- ... (toggle usa_ordine_chiamata come prima) ... --}}
                                     <x-input-label for="usa_ordine_chiamata_toggle" :value="__('Abilita Ordine di Chiamata Fisso')" />
                                     <div class="flex items-center mt-1">
                                         <span class="text-sm text-gray-500 dark:text-gray-400 mr-3" x-text="enabled ? 'Sì, attivo' : 'No, disattivato (chiamata libera)'"></span>
-                                        <button 
-                                            type="button"
-                                            class="relative inline-flex flex-shrink-0 h-6 w-11 border-2 border-transparent rounded-full cursor-pointer transition-colors ease-in-out duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 dark:focus:ring-offset-gray-800"
-                                            :class="enabled ? 'bg-indigo-600' : 'bg-gray-200 dark:bg-gray-700'"
-                                            @click="enabled = !enabled"
-                                            role="switch"
-                                            :aria-checked="enabled.toString()"
-                                        >
+                                        <button type="button" class="relative inline-flex flex-shrink-0 h-6 w-11 border-2 border-transparent rounded-full cursor-pointer transition-colors ease-in-out duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 dark:focus:ring-offset-gray-800" :class="enabled ? 'bg-indigo-600' : 'bg-gray-200 dark:bg-gray-700'" @click="enabled = !enabled" role="switch" :aria-checked="enabled.toString()">
                                             <span class="sr-only">Usa toggle</span>
-                                            <span
-                                                aria-hidden="true"
-                                                class="pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow transform ring-0 transition ease-in-out duration-200"
-                                                :class="enabled ? 'translate-x-5' : 'translate-x-0'"
-                                            ></span>
+                                            <span aria-hidden="true" class="pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow transform ring-0 transition ease-in-out duration-200" :class="enabled ? 'translate-x-5' : 'translate-x-0'"></span>
                                         </button>
                                     </div>
                                     <input type="hidden" name="usa_ordine_chiamata" :value="enabled ? '1' : '0'">
@@ -188,33 +187,63 @@
                                     <x-input-error :messages="$errors->get('usa_ordine_chiamata')" class="mt-2" />
                                 </div>
 
+                                <div class="mt-6">
+                                    <h5 class="text-md font-semibold mb-3 text-gray-700 dark:text-gray-300">Definizione Ordine Chiamata Squadre</h5>
+                                    {{-- ... (lista squadre con input ordine come prima) ... --}}
+                                    @if(isset($squadrePerOrdinamento) && $squadrePerOrdinamento->count() > 0)
+                                        <div class="space-y-3">
+                                            @foreach($squadrePerOrdinamento as $squadra)
+                                                <div class="flex items-center justify-between p-2 border rounded-md dark:border-gray-700 bg-gray-50 dark:bg-gray-700/50">
+                                                    <label for="ordine_squadra_{{ $squadra->id }}" class="text-sm text-gray-700 dark:text-gray-300 w-3/4">{{ $squadra->name }}</label>
+                                                    <input type="number"
+                                                           name="ordine_squadre[{{ $squadra->id }}]"
+                                                           id="ordine_squadra_{{ $squadra->id }}"
+                                                           value="{{ old('ordine_squadre.'.$squadra->id, $squadra->ordine_chiamata) }}"
+                                                           class="w-24 text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm"
+                                                           min="1"
+                                                           placeholder="N/A">
+                                                </div>
+                                                @error('ordine_squadre.'.$squadra->id)
+                                                    <p class="text-xs text-red-600 dark:text-red-400 mt-1">{{ $message }}</p>
+                                                @enderror
+                                            @endforeach
+                                        </div>
+                                        @error('ordine_squadre')
+                                            <p class="text-xs text-red-600 dark:text-red-400 mt-2">{{ $message }}</p>
+                                        @enderror
+                                    @else
+                                        <p class="text-sm text-gray-500 dark:text-gray-400">Nessuna squadra trovata per definire l'ordine.</p>
+                                    @endif
+                                </div>
+
                                 <div class="mt-4">
                                     <x-input-label for="prossimo_turno_chiamata_user_id" :value="__('Prossima Squadra a Chiamare (se ordine attivo)')" />
+                                    {{-- ... (dropdown prossimo_turno_chiamata_user_id come prima, usando $utentiPerSelezioneProssimo) ... --}}
                                     <select name="prossimo_turno_chiamata_user_id" id="prossimo_turno_chiamata_user_id" class="block mt-1 w-full border-gray-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 focus:border-indigo-500 dark:focus:border-indigo-600 focus:ring-indigo-500 dark:focus:ring-indigo-600 rounded-md shadow-sm">
                                         <option value="">-- {{ __('Nessuno / Ordine non attivo o da iniziare') }} --</option>
-                                        @if(isset($utentiPerOrdineChiamata))
-                                            @foreach ($utentiPerOrdineChiamata as $utente)
+                                        @if(isset($utentiPerSelezioneProssimo))
+                                            @foreach ($utentiPerSelezioneProssimo as $utente)
                                                 <option value="{{ $utente->id }}" {{ (old('prossimo_turno_chiamata_user_id', $impostazioni->prossimo_turno_chiamata_user_id ?? '') == $utente->id) ? 'selected' : '' }}>
                                                     {{ $utente->name }}
                                                 </option>
                                             @endforeach
                                         @endif
                                     </select>
-                                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Se l'ordine di chiamata è attivo, indica chi è il prossimo. Viene aggiornato automaticamente.</p>
+                                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Se l'ordine di chiamata è attivo, indica chi è il prossimo. Viene aggiornato automaticamente durante l'asta o può essere forzato qui.</p>
                                     <x-input-error :messages="$errors->get('prossimo_turno_chiamata_user_id')" class="mt-2" />
                                 </div>
-
                             </div>
                         </div>
 
                         <div class="block mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
                             <h4 class="text-md font-semibold mb-2 text-red-600 dark:text-red-400">{{ __('Azioni per Nuova Asta') }}</h4>
+                            {{-- ... (checkbox reset_asta_completo come prima) ... --}}
                             <label for="reset_asta_completo" class="inline-flex items-center">
                                 <input id="reset_asta_completo" type="checkbox" class="rounded border-gray-300 dark:border-gray-600 text-indigo-600 shadow-sm focus:ring-indigo-500 dark:focus:ring-indigo-600" name="reset_asta_completo" value="1">
                                 <span class="ms-2 text-sm text-gray-700 dark:text-gray-300 font-medium">{{ __('PREPARA NUOVA SESSIONE D\'ASTA COMPLETA') }}</span>
                             </label>
                             <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                                <strong>Attenzione:</strong> Selezionando questa opzione e salvando, verranno resettati i crediti di tutte le squadre al valore "Crediti Iniziali per Squadra" definito, TUTTE le rose attuali verranno CANCELLATE, e la fase dell'asta verrà impostata a Portieri (P). Usare solo per iniziare una nuova stagione/asta da zero.
+                                <strong>Attenzione:</strong> Selezionando questa opzione e salvando, verranno resettati i crediti di tutte le squadre al valore "Crediti Iniziali per Squadra" definito, TUTTE le rose attuali verranno CANCELLATE (per il tag lista attivo), il conteggio delle sostituzioni stagionali usate verrà azzerato, e la fase dell'asta verrà impostata a Portieri (P) o Pre-Asta. Usare solo per iniziare una nuova stagione/asta da zero. L'ordine di chiamata, se attivo, ripartirà dal primo.
                             </p>
                         </div>
 

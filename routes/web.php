@@ -2,30 +2,24 @@
 
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\ProfileController;
-use App\Http\Controllers\AdminController; // Controller Admin generico
-use App\Http\Controllers\Admin\AdminRosterController; // Controller specifico per Rose Admin
-use App\Http\Controllers\GiocatoreImportController; // Controller per Import CSV
-use App\Http\Controllers\AstaController; // Controller per logica Asta e Dashboard Squadra
+use App\Http\Controllers\AdminController; // Controller Admin unificato
+use App\Http\Controllers\GiocatoreImportController; // Mantenuto separato per ora
+use App\Http\Controllers\AstaController;
 
 /*
  |--------------------------------------------------------------------------
  | Web Routes
  |--------------------------------------------------------------------------
- |
- | Here is where you can register web routes for your application. These
- | routes are loaded by the RouteServiceProvider within a group which
- | contains the "web" middleware group. Now create something great!
- |
  */
 
 // Pagina di benvenuto o home pubblica
 Route::get('/', function () {
-    return view('welcome'); // La vista di default di Laravel
+    return view('welcome');
 });
     
     // Dashboard Route (gestita da AstaController per smistare Admin/Squadra)
     Route::get('/dashboard', [AstaController::class, 'dashboard'])
-    ->middleware(['auth', 'verified']) // 'verified' è opzionale se non usi la verifica email
+    ->middleware(['auth', 'verified'])
     ->name('dashboard');
     
     // Rotte per la gestione del profilo utente (da Breeze)
@@ -42,46 +36,66 @@ Route::get('/', function () {
         // === GRUPPO ROTTE ADMIN ===
         Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(function () {
             
-            // Dashboard Admin
+            // === API INTERNE PER ADMIN (per popolare dinamicamente i dropdown) ===
+            Route::prefix('api')->name('api.')->group(function () {
+                Route::get('/squadra/{user}/rosa-per-sostituzione', [AdminController::class, 'getSquadraRosaPerSostituzione'])
+                ->name('squadra.rosa'); // Nome completo generato: admin.api.squadra.rosa
+            });
+            
+            // --- Dashboard Admin ---
             Route::get('/dashboard', [AdminController::class, 'dashboard'])->name('dashboard');
             Route::get('/mia-squadra', [AdminController::class, 'mostraMiaSquadraDashboard'])->name('mia_squadra.dashboard');
             
-            // Gestione Utenti/Squadre
-            Route::get('/users', [AdminController::class, 'users'])->name('users.index');
-            Route::get('/users/{user}/edit', [AdminController::class, 'editUser'])->name('users.edit');
-            Route::patch('/users/{user}', [AdminController::class, 'updateUser'])->name('users.update');
-            
-            // Impostazioni Lega e Asta
-            Route::get('/settings', [AdminController::class, 'settings'])->name('settings.index');
-            Route::post('/settings', [AdminController::class, 'updateSettings'])->name('settings.update');
-            
-            // Importazione Calciatori CSV
-            Route::get('/giocatori/import', [GiocatoreImportController::class, 'showImportForm'])->name('giocatori.import.show');
-            Route::post('/giocatori/import', [GiocatoreImportController::class, 'handleImport'])->name('giocatori.import.handle');
-            
-            // Visualizzazione Lista Calciatori (Admin)
-            Route::get('/giocatori', [GiocatoreImportController::class, 'indexGiocatori'])->name('giocatori.index');
-            
-            // Assegnazione Manuale Giocatori (Admin)
-            Route::get('/giocatori/assegna', [AdminRosterController::class, 'showAssegnaForm'])->name('giocatori.assegna.show');
-            Route::post('/giocatori/assegna', [AdminRosterController::class, 'handleAssegna'])->name('giocatori.assegna.handle');
-            Route::get('/giocatori/autocomplete', [AdminRosterController::class, 'autocompleteGiocatori'])->name('giocatori.autocomplete'); // Per TomSelect
-            
-            // Visualizzazione Rose Squadre (Admin)
-            Route::get('/rose-squadre', [AdminRosterController::class, 'visualizzaRoseSquadre'])->name('rose.squadre.index');
-            
-            // Asta Tap
-            Route::get('/asta/chiamate', [AdminRosterController::class, 'gestioneChiamateAsta'])->name('asta.chiamate.gestione');
-            Route::post('/asta/avvia-tap/{chiamataAsta}', [AdminRosterController::class, 'avviaAstaTap'])->name('asta.avvia.tap');
+            // --- Gestione Utenti/Squadre ---
+            Route::prefix('utenti')->name('utenti.')->group(function () {
+            Route::get('/', [AdminController::class, 'users'])->name('index');
+            Route::get('/crea', [AdminController::class, 'createUserForm'])->name('create');
+            Route::post('/', [AdminController::class, 'storeUser'])->name('store'); // Definisce admin.utenti.store
+            Route::get('/{user}/edit', [AdminController::class, 'editUser'])->name('edit');
+            Route::patch('/{user}', [AdminController::class, 'updateUser'])->name('update');
+            });
+                
+                // --- Impostazioni Lega e Asta ---
+                Route::prefix('impostazioni')->name('impostazioni.')->group(function () {
+                    Route::get('/', [AdminController::class, 'settings'])->name('index');
+                    Route::post('/', [AdminController::class, 'updateSettings'])->name('update');
+                });
+                    
+                    // --- Gestione Giocatori ---
+                    Route::prefix('giocatori')->name('giocatori.')->group(function () {
+                        // Importazione CSV (manteniamo GiocatoreImportController per ora)
+                        Route::get('/import', [GiocatoreImportController::class, 'showImportForm'])->name('import.show');
+                        Route::post('/import', [GiocatoreImportController::class, 'handleImport'])->name('import.handle');
+                        
+                        // Elenco Giocatori (manteniamo GiocatoreImportController per ora)
+                        Route::get('/', [GiocatoreImportController::class, 'indexGiocatori'])->name('index');
+                        
+                        // Assegnazione Manuale Giocatori (ora in AdminController)
+                        Route::get('/assegna', [AdminController::class, 'showAssegnaForm'])->name('assegna.show'); // Metodo showAssegnaForm
+                        Route::post('/assegna', [AdminController::class, 'handlePlayerAssignment'])->name('assegna.handle'); // Metodo handlePlayerAssignment (o handleAssegna)
+                        Route::get('/autocomplete', [AdminController::class, 'autocompletePlayers'])->name('autocomplete'); // Metodo autocompletePlayers
+                    });
+                        
+                        // --- Gestione Rose Squadre ---
+                        Route::prefix('rose')->name('rose.')->group(function () {
+                            Route::delete('/svincola/{giocatoreAcquistato}', [AdminController::class, 'svincolaGiocatore'])->name('svincola');
+                            Route::get('/', [AdminController::class, 'visualizzaRoseSquadre'])->name('squadre.index'); // Metodo visualizzaRoseSquadre
+                            Route::get('/sostituisci', [AdminController::class, 'showSostituzioneForm'])->name('sostituisci.show');
+                            Route::post('/sostituisci', [AdminController::class, 'handleSostituzione'])->name('sostituisci.handle');
+                        });
+                            
+                            // --- Gestione Asta (specifico Admin) ---
+                            Route::prefix('asta')->name('asta.')->group(function () {
+                                // Gestione chiamate Asta TAP (per approvazione admin)
+                                Route::get('/chiamate', [AdminController::class, 'gestioneChiamateAsta'])->name('chiamate.gestione'); // Metodo manageAuctionCalls
+                                Route::post('/avvia-tap/{chiamataAsta}', [AdminController::class, 'startTapAuction'])->name('avvia.tap'); // Metodo startTapAuction
+                                Route::post('/annulla-chiamata/{chiamataAsta}', [AdminController::class, 'annullaChiamataTap'])->name('chiamata.annulla'); // NUOVA ROTTA, assicurati di avere il metodo cancelTapAuctionCall
+                            });
         });
             
             
             // === GRUPPO ROTTE SQUADRA (ASTA) ===
             Route::middleware(['auth'])->prefix('asta')->name('asta.')->group(function () {
-                // Nota: Il middleware 'auth' qui assicura che l'utente sia loggato.
-                // Il controller AstaController nel metodo dashboard farà il redirect se è un admin.
-                // Per altre rotte qui, se vuoi che siano *solo* per non-admin, dovrai aggiungere un altro middleware.
-                
                 Route::get('/calciatori-disponibili', [AstaController::class, 'mostraCalciatoriDisponibili'])->name('calciatori.disponibili');
                 Route::post('/registra-chiamata/{calciatore}', [AstaController::class, 'registraChiamata'])->name('registra.chiamata');
                 Route::get('/live', [AstaController::class, 'mostraAstaLive'])->name('live');

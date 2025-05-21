@@ -7,7 +7,18 @@
     </x-slot>
 
     <div class="py-12">
+    <div class="max-w-7xl mx-auto sm:px-6 lg:px-8">
         <div class="max-w-7xl mx-auto sm:px-6 lg:px-8">
+        {{-- Bottone per creare nuova squadra --}}
+            <div class="mb-4 flex justify-end">
+                <a href="{{ route('admin.utenti.create') }}">
+                    <x-primary-button>
+                        {{ __('Crea Nuova Squadra') }}
+                    </x-primary-button>
+                </a>
+            </div>
+            {{-- Fine Bottone --}}
+        
             <div class="bg-white dark:bg-gray-800 overflow-hidden shadow-sm sm:rounded-lg">
                 <div class="p-6 text-gray-900 dark:text-gray-100">
                     @if (session('success'))
@@ -56,7 +67,7 @@
                                         <td class="px-4 py-3 text-sm font-medium">{{ $utente->ordine_chiamata ?? '-' }}</td> {{-- NUOVO --}}
                                         <td class="px-4 py-3 text-sm font-medium">
     <div class="flex items-center space-x-2">
-        <a href="{{ route('admin.users.edit', $utente->id) }}" class="text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-500">Modifica</a>
+        <a href="{{ route('admin.utenti.edit', $utente->id) }}" class="text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-500">Modifica</a>
         
         @if ($utente->phone_number)
             @php
@@ -103,10 +114,6 @@
 
             <a href="https://wa.me/{{ $numeroWhatsAppFinal }}?text={{ $testoMessaggioWhatsApp }}" target="_blank" class="text-green-500 hover:text-green-700 dark:text-green-400 dark:hover:text-green-600" title="Invia credenziali via WhatsApp">
                 <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path d="M13.581 1.203a7.343 7.343 0 00-7.161 0c-2.956.884-5.055 3.572-5.055 6.722 0 1.42.472 2.798 1.393 3.915l-1.05 3.851 3.99-1.033a8.353 8.353 0 004.096.992h.014c3.773 0 6.831-2.907 6.831-6.488.001-3.028-1.916-5.648-4.958-6.616l-.001.001zm-7.223 11.645l-.22-.136c-1.134-.696-1.86-1.86-1.86-3.168 0-2.352 1.628-4.418 4.018-5.115a.313.313 0 01.197-.001c2.463.68 4.188 2.76 4.188 5.115a5.003 5.003 0 01-2.73 4.45l-.237.135-2.362.613.622-2.27.114-.415-.08-.19a5.135 5.135 0 01-1.533-3.348c0-.307.03-.606.087-.897l.076-.393-.327-.142a5.309 5.309 0 01-3.281.189l-.24.06zm3.808 1.534c.996 0 1.948-.192 2.798-.55l.142-.06.927.24 1.555.402-1.58-1.54-.182-.178.072-.2a5.903 5.903 0 001.06-3.213c0-2.87-2.055-5.33-4.913-5.33a6.08 6.08 0 00-2.968.77l-.22.112c-2.16 1.086-3.483 3.303-3.483 5.792 0 1.48.603 2.86 1.65 3.9l.155.154-.42 1.548-1.448.377.384-1.402.1-.365-.153-.091a6.147 6.147 0 00-1.27-2.924c.036-.27.055-.546.055-.825a5.309 5.309 0 013.28-.189l.24-.06.014.001z"></path></svg>
-            </a>
-            {{-- MODIFICA QUI: usa ?body= invece di &body= --}}
-            <a href="sms:{{ $numeroSMSFinal }}?body={{ $testoMessaggioSMS }}" class="text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-600" title="Invia credenziali via SMS">
-                <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10c0 3.866-3.582 7-8 7a8.841 8.841 0 01-4.083-.98L2 17l1.338-3.123C2.493 12.767 2 11.434 2 10c0-3.866 3.582-7 8-7s8 3.134 8 7zM7 9H5v2h2V9zm8 0h-2v2h2V9zm-4 0H9v2h2V9z" clip-rule="evenodd"></path></svg>
             </a>
         @endif
     </div>
