@@ -39,7 +39,7 @@
                               resetCompleto: {{ old('reset_asta_completo', '0') === '1' ? 'true' : 'false' }},
                               modalitaAsta: '{{ old('modalita_asta', $impostazioni->modalita_asta ?? 'voce') }}',
                               usaOrdineChiamata: {{ old('usa_ordine_chiamata', $impostazioni->usa_ordine_chiamata ?? false) ? 'true' : 'false' }},
-                              tagListaAttivaValue: '{{ old('tag_lista_attiva', $impostazioni->tag_lista_attiva ?? '') }}', // Per tracciare il valore del select
+                              tagListaAttivaValue: '{{ old('tag_lista_attiva', $impostazioni->tag_lista_attiva ?? '') }}',
                               isPreAsta() { return this.faseAsta === 'PRE_ASTA'; }
                           }">
                         @csrf
@@ -53,7 +53,7 @@
                                         <x-input-label for="fase_asta_corrente" :value="__('Fase Asta Corrente')" />
                                         <select name="fase_asta_corrente" id="fase_asta_corrente" x-model="faseAsta" class="block mt-1 w-full border-gray-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 focus:border-indigo-500 dark:focus:border-indigo-600 focus:ring-indigo-500 dark:focus:ring-indigo-600 rounded-md shadow-sm">
                                             @foreach ($fasiPossibili as $key => $value)
-                                                <option value="{{ $key }}">{{ $value }}</option>
+                                                <option value="{{ $key }}" {{ (old('fase_asta_corrente', $impostazioni->fase_asta_corrente) == $key) ? 'selected' : '' }}>{{ $value }}</option>
                                             @endforeach
                                         </select>
                                         <x-input-error :messages="$errors->get('fase_asta_corrente')" class="mt-2" />
@@ -68,7 +68,7 @@
                                             <option value="">-- {{ __('Nessuna / Usa ultima importata') }} --</option>
                                             @if(isset($tagsCalciatoriDisponibili))
                                                 @foreach ($tagsCalciatoriDisponibili as $tag)
-                                                    <option value="{{ $tag }}">{{ $tag }}</option>
+                                                    <option value="{{ $tag }}" {{ (old('tag_lista_attiva', $impostazioni->tag_lista_attiva) == $tag) ? 'selected' : '' }}>{{ $tag }}</option>
                                                 @endforeach
                                             @endif
                                         </select>
@@ -136,8 +136,8 @@
                                         <x-text-input id="crediti_iniziali_lega" class="block mt-1 w-full" type="number"
                                         name="crediti_iniziali_lega"
                                         :value="old('crediti_iniziali_lega', $impostazioni->crediti_iniziali_lega ?? 500)"
-                                        required min="1"
-                                        ::disabled="!isPreAsta() && !resetCompleto" />
+                                        min="1"
+                                        x-bind:disabled="!isPreAsta() && !resetCompleto" />
                                         <p x-show="!isPreAsta() && !resetCompleto" class="mt-1 text-xs text-orange-500 dark:text-orange-400">Modificabile solo in PRE_ASTA o con Reset Completo.</p>
                                         <x-input-error :messages="$errors->get('crediti_iniziali_lega')" class="mt-2" />
                                     </div>
@@ -146,22 +146,22 @@
                                     <div class="grid grid-cols-2 gap-4">
                                         <div>
                                             <x-input-label for="num_portieri" :value="__('Portieri (P)')" />
-                                            <x-text-input id="num_portieri" class="block mt-1 w-full" type="number" name="num_portieri" :value="old('num_portieri', $impostazioni->num_portieri ?? 3)" required min="0" ::disabled="!isPreAsta() && !resetCompleto" />
+                                            <x-text-input id="num_portieri" class="block mt-1 w-full" type="number" name="num_portieri" :value="old('num_portieri', $impostazioni->num_portieri ?? 3)"  min="0" x-bind:disabled="!isPreAsta() && !resetCompleto" />
                                             <x-input-error :messages="$errors->get('num_portieri')" class="mt-2" />
                                         </div>
                                         <div>
                                             <x-input-label for="num_difensori" :value="__('Difensori (D)')" />
-                                            <x-text-input id="num_difensori" class="block mt-1 w-full" type="number" name="num_difensori" :value="old('num_difensori', $impostazioni->num_difensori ?? 8)" required min="0" ::disabled="!isPreAsta() && !resetCompleto"/>
+                                            <x-text-input id="num_difensori" class="block mt-1 w-full" type="number" name="num_difensori" :value="old('num_difensori', $impostazioni->num_difensori ?? 8)"  min="0" x-bind:disabled="!isPreAsta() && !resetCompleto"/>
                                             <x-input-error :messages="$errors->get('num_difensori')" class="mt-2" />
                                         </div>
                                         <div>
                                             <x-input-label for="num_centrocampisti" :value="__('Centrocampisti (C)')" />
-                                            <x-text-input id="num_centrocampisti" class="block mt-1 w-full" type="number" name="num_centrocampisti" :value="old('num_centrocampisti', $impostazioni->num_centrocampisti ?? 8)" required min="0" ::disabled="!isPreAsta() && !resetCompleto"/>
+                                            <x-text-input id="num_centrocampisti" class="block mt-1 w-full" type="number" name="num_centrocampisti" :value="old('num_centrocampisti', $impostazioni->num_centrocampisti ?? 8)"  min="0" x-bind:disabled="!isPreAsta() && !resetCompleto"/>
                                             <x-input-error :messages="$errors->get('num_centrocampisti')" class="mt-2" />
                                         </div>
                                         <div>
                                             <x-input-label for="num_attaccanti" :value="__('Attaccanti (A)')" />
-                                            <x-text-input id="num_attaccanti" class="block mt-1 w-full" type="number" name="num_attaccanti" :value="old('num_attaccanti', $impostazioni->num_attaccanti ?? 6)" required min="0" ::disabled="!isPreAsta() && !resetCompleto"/>
+                                            <x-text-input id="num_attaccanti" class="block mt-1 w-full" type="number" name="num_attaccanti" :value="old('num_attaccanti', $impostazioni->num_attaccanti ?? 6)"  min="0" x-bind:disabled="!isPreAsta() && !resetCompleto"/>
                                             <x-input-error :messages="$errors->get('num_attaccanti')" class="mt-2" />
                                         </div>
                                     </div>
@@ -188,11 +188,11 @@
 
                                 <fieldset class="border border-gray-300 dark:border-gray-700 p-4 rounded-md mt-6">
                                     <legend class="text-md font-semibold px-2 text-indigo-600 dark:text-indigo-400">Ordine di Chiamata</legend>
-                                    <div class="mt-4" x-data="{ enabledOrdineToggle: {{ old('usa_ordine_chiamata', $impostazioni->usa_ordine_chiamata ?? false) ? 'true' : 'false' }} }" x-init="usaOrdineChiamata = enabledOrdineToggle">
+                                    <div class="mt-4" x-data="{ enabledOrdineToggle: {{ old('usa_ordine_chiamata', $impostazioni->usa_ordine_chiamata ?? false) ? 'true' : 'false' }} }" x-init="$watch('enabledOrdineToggle', value => usaOrdineChiamata = value)">
                                         <x-input-label for="usa_ordine_chiamata_toggle" :value="__('Abilita Ordine di Chiamata Fisso')" />
                                         <div class="flex items-center mt-1">
                                             <span class="text-sm text-gray-500 dark:text-gray-400 mr-3" x-text="enabledOrdineToggle ? 'Sì, attivo' : 'No, disattivato (chiamata libera)'"></span>
-                                            <button type="button" class="relative inline-flex flex-shrink-0 h-6 w-11 border-2 border-transparent rounded-full cursor-pointer transition-colors ease-in-out duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 dark:focus:ring-offset-gray-800" :class="enabledOrdineToggle ? 'bg-indigo-600' : 'bg-gray-200 dark:bg-gray-700'" @click="enabledOrdineToggle = !enabledOrdineToggle; usaOrdineChiamata = enabledOrdineToggle" role="switch" :aria-checked="enabledOrdineToggle.toString()">
+                                            <button type="button" class="relative inline-flex flex-shrink-0 h-6 w-11 border-2 border-transparent rounded-full cursor-pointer transition-colors ease-in-out duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 dark:focus:ring-offset-gray-800" :class="enabledOrdineToggle ? 'bg-indigo-600' : 'bg-gray-200 dark:bg-gray-700'" @click="enabledOrdineToggle = !enabledOrdineToggle" role="switch" :aria-checked="enabledOrdineToggle.toString()">
                                                 <span class="sr-only">Usa toggle</span>
                                                 <span aria-hidden="true" class="pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow transform ring-0 transition ease-in-out duration-200" :class="enabledOrdineToggle ? 'translate-x-5' : 'translate-x-0'"></span>
                                             </button>
@@ -204,34 +204,50 @@
 
                                     <div class="mt-6" x-show="usaOrdineChiamata">
                                         <h5 class="text-md font-semibold mb-3 text-gray-700 dark:text-gray-300">Definizione Ordine Chiamata Squadre</h5>
+                                        {{-- La variabile $squadrePerOrdinamento viene passata dal controller --}}
+                                        {{-- e dovrebbe contenere tutti gli utenti, inclusi gli admin se partecipano --}}
                                         @if(isset($squadrePerOrdinamento) && $squadrePerOrdinamento->count() > 0)
                                             <div class="space-y-3">
                                                 @foreach($squadrePerOrdinamento as $squadra)
+                                                    {{-- Se vuoi escludere gli admin dall'ordinamento, aggiungi un if qui --}}
+                                                    {{-- @if(!$squadra->is_admin) --}}
                                                     <div class="flex items-center justify-between p-2 border rounded-md dark:border-gray-700 bg-gray-50 dark:bg-gray-700/50">
                                                         <label for="ordine_squadra_{{ $squadra->id }}" class="text-sm text-gray-700 dark:text-gray-300 w-3/4">
                                                             {{ $squadra->name }}
                                                             @if($squadra->is_admin) <span class="text-xs text-red-500">(Admin)</span> @endif
                                                         </label>
+                                                        @php
+                                                            $ordineAttualePerSquadra = '';
+                                                            if (is_array($impostazioni->ordine_squadre_personalizzato)) {
+                                                                $posizione = array_search($squadra->id, $impostazioni->ordine_squadre_personalizzato);
+                                                                if ($posizione !== false) {
+                                                                    $ordineAttualePerSquadra = $posizione + 1;
+                                                                }
+                                                            }
+                                                        @endphp
                                                         <input type="number"
-                                                               name="ordine_squadre[{{ $squadra->id }}]"
+                                                               name="ordine_squadre_personalizzato_input[{{ $squadra->id }}]"
                                                                id="ordine_squadra_{{ $squadra->id }}"
-                                                               value="{{ old('ordine_squadre.'.$squadra->id, $squadra->ordine_chiamata) }}"
+                                                               value="{{ old('ordine_squadre_personalizzato_input.'.$squadra->id, $ordineAttualePerSquadra) }}"
                                                                class="w-24 text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm"
                                                                min="1"
                                                                placeholder="N/A">
                                                     </div>
-                                                    @error('ordine_squadre.'.$squadra->id)
+                                                    @error('ordine_squadre_personalizzato_input.'.$squadra->id)
                                                         <p class="text-xs text-red-600 dark:text-red-400 mt-1">{{ $message }}</p>
                                                     @enderror
+                                                    {{-- @endif --}} {{-- Chiudi l'if se escludi gli admin --}}
                                                 @endforeach
                                             </div>
-                                            @error('ordine_squadre') {{-- Errore generale per duplicati --}}
+                                            @error('ordine_squadre_personalizzato_input')
                                                 <p class="text-xs text-red-600 dark:text-red-400 mt-2">{{ $message }}</p>
                                             @enderror
                                         @else
                                             <p class="text-sm text-gray-500 dark:text-gray-400">Nessuna squadra trovata per definire l'ordine.</p>
                                         @endif
+                                        <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">Assegna un numero progressivo univoco a ciascuna squadra. L'ordine più basso chiama per primo. Lasciare vuoto per escludere dall'ordine.</p>
                                     </div>
+
 
                                     <div class="mt-4" x-show="usaOrdineChiamata">
                                         <x-input-label for="prossimo_turno_chiamata_user_id" :value="__('Prossima Squadra a Chiamare (se ordine attivo)')" />
@@ -239,9 +255,13 @@
                                             <option value="">-- {{ __('Nessuno / Ordine non attivo o da iniziare') }} --</option>
                                             @if(isset($utentiPerSelezioneProssimo))
                                                 @foreach ($utentiPerSelezioneProssimo as $utente)
+                                                     {{-- Se vuoi escludere gli admin dal poter essere "prossimo chiamante" --}}
+                                                     {{-- @if(!$utente->is_admin) --}}
                                                     <option value="{{ $utente->id }}" {{ (old('prossimo_turno_chiamata_user_id', $impostazioni->prossimo_turno_chiamata_user_id ?? '') == $utente->id) ? 'selected' : '' }}>
                                                         {{ $utente->name }}
+                                                        @if($utente->is_admin) (Admin) @endif
                                                     </option>
+                                                    {{-- @endif --}}
                                                 @endforeach
                                             @endif
                                         </select>
@@ -261,7 +281,7 @@
                                             x-model="resetCompleto"
                                             class="rounded border-gray-300 dark:border-gray-600 text-indigo-600 shadow-sm focus:ring-indigo-500 dark:focus:ring-indigo-600"
                                             name="reset_asta_completo" value="1"
-                                            x-on:change="if(resetCompleto && !tagListaAttivaValue){ alert('ATTENZIONE: Per resettare l\'asta, devi prima selezionare un \"Tag Lista Calciatori Attiva\"!'); resetCompleto = false; $event.target.checked = false; return; } if(resetCompleto && !confirm('CONFERMA RESET ASTA:\n\nStai per resettare completamente l\'asta per il TAG LISTA: \'' + (tagListaAttivaValue || 'NON SELEZIONATO') + '\'.\n\nQuesta azione implica:\n- I crediti di TUTTE le squadre verranno riportati al valore \"Crediti Iniziali per Squadra\".\n- TUTTE le rose verranno CANCELLATE per il tag lista selezionato.\n- Il conteggio delle sostituzioni stagionali usate verrà AZZERATO.\n- Le chiamate TAP in corso o in attesa (per il tag) verranno annullate.\n- La fase dell\'asta verrà impostata a Portieri (P) o Pre-Asta.\n\nL\'operazione è IRREVERSIBILE per i dati del tag selezionato.\n\nSei assolutamente sicuro di voler procedere?')) { resetCompleto = false; $event.target.checked = false; }">
+                                            x-on:change="if(resetCompleto && !tagListaAttivaValue){ alert('ATTENZIONE: Per resettare l\'asta, devi prima selezionare un \"Tag Lista Calciatori Attiva\"!'); resetCompleto = false; $event.target.checked = false; return; } if(resetCompleto && !confirm('CONFERMA RESET ASTA:\n\nStai per resettare completamente l\'asta per il TAG LISTA: \'' + (tagListaAttivaValue || 'NON SELEZIONATO') + '\'.\n\nQuesta azione implica:\n- I crediti di TUTTE le squadre verranno riportati al valore \"Crediti Iniziali per Squadra\".\n- TUTTE le rose verranno CANCELLATE per il tag lista selezionato.\n- Il conteggio delle sostituzioni stagionali usate verrà AZZERATO.\n- Le chiamate TAP in corso o in attesa (per il tag) verranno annullate/cancellate.\n- La fase dell\'asta verrà impostata a Portieri (P) o Pre-Asta.\n\nL\'operazione è IRREVERSIBILE per i dati del tag selezionato.\n\nSei assolutamente sicuro di voler procedere?')) { resetCompleto = false; $event.target.checked = false; }">
                                         <span class="ms-2 text-sm text-gray-700 dark:text-gray-300 font-medium">{{ __('PREPARA NUOVA SESSIONE D\'ASTA COMPLETA') }}</span>
                                     </label>
                                     <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
@@ -271,8 +291,9 @@
                                         Selezionare un "Tag Lista Calciatori Attiva" è obbligatorio per poter resettare l'asta.
                                     </div>
                                     <x-input-error :messages="$errors->get('reset_asta_completo')" class="mt-2" />
-                                    <x-input-error :messages="$errors->get('tag_lista_attiva')" class="mt-2" /> {{-- Mostra errore tag_lista_attiva se fallisce validazione server con reset --}}
-
+                                    @if ($errors->has('tag_lista_attiva') && old('reset_asta_completo'))
+                                        <x-input-error :messages="$errors->get('tag_lista_attiva')" class="mt-2" />
+                                    @endif
                                 </div>
                             </fieldset>
                         </div>

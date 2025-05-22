@@ -165,23 +165,66 @@ class AdminController extends Controller
     
     public function settings()
     {
-        $impostazioni = ImpostazioneLega::firstOrFail();
-        $fasiPossibili = $this->getFasiDropdownOpzioni();
+        // Carica le impostazioni, creandole con valori di default se non esistono.
+        // È importante avere valori di default sensati qui se ImpostazioneLega::firstOrFail() non è adatto.
+        $impostazioni = ImpostazioneLega::firstOrCreate([], [
+            'fase_asta_corrente' => 'PRE_ASTA',
+            'crediti_iniziali_lega' => 500,
+            'num_portieri' => 3,
+            'num_difensori' => 8,
+            'num_centrocampisti' => 8,
+            'num_attaccanti' => 6,
+            'tag_lista_attiva' => null,
+            'modalita_asta' => 'voce', // o 'tap' a seconda del default preferito
+            'durata_countdown_secondi' => 60,
+            'asta_tap_approvazione_admin' => true,
+            'usa_ordine_chiamata' => false,
+            'prossimo_turno_chiamata_user_id' => null,
+            'tipo_base_asta' => 'quotazione_iniziale',
+            'ordine_squadre_personalizzato' => null, // Default a null per l'array JSON
+            'max_sostituzioni_stagionali' => 5,
+            'percentuale_crediti_svincolo_riparazione' => 50,
+        ]);
+        
+        
+        $fasiPossibili = $this->getFasiDropdownOpzioni(); // Metodo helper da definire o assicurarsi esista
         $tagsCalciatoriDisponibili = Calciatore::select('tag_lista_inserimento')
         ->whereNotNull('tag_lista_inserimento')->where('tag_lista_inserimento', '!=', '')
         ->distinct()->orderBy('tag_lista_inserimento', 'desc')->pluck('tag_lista_inserimento');
         
+        // Utenti per il dropdown "Prossima Squadra a Chiamare"
         $utentiPerSelezioneProssimo = User::orderBy('name')->get(['id', 'name']);
-        $squadrePerOrdinamento = User::orderByRaw('ISNULL(ordine_chiamata), ordine_chiamata ASC') // Ordina prima i null
-        ->orderBy('name', 'asc')
-        ->get(['id', 'name', 'ordine_chiamata', 'is_admin']);
+        
+        // Squadre da mostrare nella sezione per definire l'ordine di chiamata.
+        // Ora l'ordine è determinato da `ordine_squadre_personalizzato`, quindi recuperiamo tutte le squadre
+        // e poi la vista si occuperà di mostrare l'ordine attuale basato su quell'array.
+        $tutteLeSquadre = User::orderBy('name', 'asc')->get(['id', 'name', 'is_admin']);
+        $squadrePerOrdinamento = collect(); // Inizializza come collection vuota
+        
+        $ordineSalvato = $impostazioni->ordine_squadre_personalizzato; // Questo è un array di ID utente
+        
+        if (is_array($ordineSalvato) && !empty($ordineSalvato)) {
+            // Crea una mappa ID => posizione per un ordinamento efficiente
+            $mappaPosizioni = array_flip($ordineSalvato);
+            $squadrePerOrdinamento = $tutteLeSquadre->sortBy(function ($squadra) use ($mappaPosizioni) {
+                return $mappaPosizioni[$squadra->id] ?? PHP_INT_MAX;
+            })->values(); // values() per re-indicizzare la collection
+        } else {
+            // Se non c'è un ordine personalizzato salvato, o non è attivo `usa_ordine_chiamata`,
+            // passa semplicemente tutte le squadre ordinate per nome.
+            // La vista gestirà se mostrare o meno gli input per l'ordine.
+            $squadrePerOrdinamento = $tutteLeSquadre;
+        }
+        // Log::debug('[Settings View] Squadre per ordinamento:', $squadrePerOrdinamento->pluck('name', 'id')->toArray());
+        // Log::debug('[Settings View] Ordine personalizzato salvato:', $ordineSalvato);
+        
         
         return view('admin.impostazioni.index', compact(
             'impostazioni',
             'fasiPossibili',
             'tagsCalciatoriDisponibili',
             'utentiPerSelezioneProssimo',
-            'squadrePerOrdinamento'
+            'squadrePerOrdinamento' // Passa la collection ordinata o quella di default
             ));
     }
     
@@ -197,10 +240,6 @@ class AdminController extends Controller
         $isResetCompletoRichiesto = $request->boolean('reset_asta_completo');
         $faseAstaRichiestaDalForm = $request->input('fase_asta_corrente');
         
-        // Condizione per rendere obbligatori i campi crediti/limiti:
-        // Sono obbligatori se si sta facendo un reset completo, OPPURE
-        // se la fase ATTUALE nel DB è PRE_ASTA e l'utente sta salvando mantenendo la fase PRE_ASTA nel form
-        // (cioè, sta modificando le impostazioni iniziali prima dell'inizio dell'asta).
         $condizioneRequiredCreditiLimiti = $isResetCompletoRichiesto ||
         ($faseAttualeNelDB === 'PRE_ASTA' && $faseAstaRichiestaDalForm === 'PRE_ASTA');
         
@@ -239,25 +278,49 @@ class AdminController extends Controller
                 Rule::requiredIf($condizioneRequiredCreditiLimiti),
                 'nullable', 'integer', 'min:0', 'max:25'
             ],
-            'reset_asta_completo' => ['nullable', 'boolean'],
             'tipo_base_asta' => ['required', Rule::in(['quotazione_iniziale', 'credito_singolo'])],
-            'ordine_squadre' => ['nullable', 'array'],
-            'ordine_squadre.*' => ['nullable', 'integer', 'min:1'],
+            'ordine_squadre_personalizzato_input' => ['nullable', 'array'],
+            'ordine_squadre_personalizzato_input.*' => ['nullable', 'integer', 'min:1'],
             'prossimo_turno_chiamata_user_id' => ['nullable', 'exists:users,id'],
             'max_sostituzioni_stagionali' => ['required', 'integer', 'min:0', 'max:99'],
             'percentuale_crediti_svincolo_riparazione' => ['required', 'integer', 'min:0', 'max:100'],
         ];
         
         $validatedData = $request->validate($regoleValidazione);
+        Log::debug('[UpdateSettings] Dati validati: ', $validatedData);
         
-        $tagListaPerOperazioni = $validatedData['tag_lista_attiva'] ?? $tagListaAttivaDB;
-        $datiDaAggiornare = $validatedData;
+        $datiDaAggiornare = collect($validatedData)->except(['ordine_squadre_personalizzato_input', 'reset_asta_completo'])->all();
+        $tagListaPerOperazioni = $datiDaAggiornare['tag_lista_attiva'] ?? $tagListaAttivaDB;
         
-        if (!$condizioneRequiredCreditiLimiti && !$isResetCompletoRichiesto) { // Se non erano richiesti E non è un reset
-            $campiDaPreservare = [
-                'crediti_iniziali_lega', 'num_portieri', 'num_difensori',
-                'num_centrocampisti', 'num_attaccanti'
-            ];
+        if ($request->boolean('usa_ordine_chiamata') && $request->has('ordine_squadre_personalizzato_input')) {
+            $inputOrdine = $request->input('ordine_squadre_personalizzato_input');
+            $squadreOrdinateId = [];
+            if (is_array($inputOrdine)) {
+                $squadreConOrdine = [];
+                foreach ($inputOrdine as $userId => $ordineNumerico) {
+                    if ($ordineNumerico !== null && $ordineNumerico !== '' && filter_var($ordineNumerico, FILTER_VALIDATE_INT) !== false) {
+                        $squadreConOrdine[(int)$userId] = (int)$ordineNumerico;
+                    }
+                }
+                asort($squadreConOrdine);
+                $squadreOrdinateId = array_keys($squadreConOrdine);
+                // $squadreOrdinateId = array_map('intval', $squadreOrdinateId); // Già int da (int)$userId
+            }
+            $datiDaAggiornare['ordine_squadre_personalizzato'] = $squadreOrdinateId;
+            Log::info('[UpdateSettings Ordine] Salvataggio ordine squadre personalizzato: ' . json_encode($squadreOrdinateId));
+        } elseif (!$request->boolean('usa_ordine_chiamata')) {
+            $datiDaAggiornare['ordine_squadre_personalizzato'] = null;
+            $datiDaAggiornare['prossimo_turno_chiamata_user_id'] = null;
+            Log::info('[UpdateSettings Ordine] Ordine chiamata disattivato. ordine_squadre_personalizzato e prossimo_turno_chiamata_user_id resettati.');
+        } else {
+            // Se 'usa_ordine_chiamata' è true ma non ci sono input per l'ordine (es. nessuna squadra da ordinare),
+            // mantieni l'ordine esistente o imposta a null se non c'era.
+            $datiDaAggiornare['ordine_squadre_personalizzato'] = $impostazioni->ordine_squadre_personalizzato ?? null;
+            Log::info('[UpdateSettings Ordine] usa_ordine_chiamata attivo, ma nessun input `ordine_squadre_personalizzato_input` ricevuto. Ordine mantenuto/resettato a: ' . json_encode($datiDaAggiornare['ordine_squadre_personalizzato']));
+        }
+        
+        if (!$condizioneRequiredCreditiLimiti && !$isResetCompletoRichiesto) {
+            $campiDaPreservare = ['crediti_iniziali_lega', 'num_portieri', 'num_difensori', 'num_centrocampisti', 'num_attaccanti'];
             foreach ($campiDaPreservare as $campo) {
                 if (!isset($validatedData[$campo]) || is_null($validatedData[$campo])) {
                     $datiDaAggiornare[$campo] = $impostazioni->$campo;
@@ -265,7 +328,6 @@ class AdminController extends Controller
             }
             Log::info("[UpdateSettings] Valori per crediti/limiti rosa preservati dal DB.");
         }
-        
         
         if (!$isResetCompletoRichiesto && $faseAstaRichiestaDalForm !== $faseAttualeNelDB) {
             $fasiRuoloOrdinate = $this->getFasiRuoloOrdinate();
@@ -278,27 +340,27 @@ class AdminController extends Controller
                     return redirect()->route('admin.impostazioni.index')->withInput()
                     ->with('error', "Dalla fase PRE_ASTA puoi passare solo alla fase Portieri (P) o a fasi di mercato successive.");
                 }
-            } elseif ($indiceAttualeDB !== false) { // Se la fase attuale nel DB è P, D, C, o A
+            } elseif ($indiceAttualeDB !== false) {
                 $ruoloDaAverCompletato = $fasiRuoloOrdinate[$indiceAttualeDB];
                 $avanzamentoLogico = ($indiceNuovoForm !== false && $indiceNuovoForm === $indiceAttualeDB + 1) ||
                 ($ruoloDaAverCompletato === 'A' && $faseAstaRichiestaDalForm === 'CONCLUSA');
                 
                 if (!$avanzamentoLogico && !in_array($faseAstaRichiestaDalForm, ['CONCLUSA', 'SVINCOLI_STAGIONALI', 'ASTA_RIPARAZIONE'])) {
                     return redirect()->route('admin.impostazioni.index')->withInput()
-                    ->with('error', "Cambio fase non consentito. Da una fase d'asta per ruolo ({$faseAttualeNelDB}) puoi avanzare al ruolo successivo, a CONCLUSA (da A), o a SVINCOLI STAGIONALI/ASTA_RIPARAZIONE.");
+                    ->with('error', "Cambio fase non consentito. Da una fase d'asta per ruolo ({$this->getNomeFaseCompleto($faseAttualeNelDB)}) puoi avanzare al ruolo successivo, a CONCLUSA (da A), o a SVINCOLI STAGIONALI/ASTA_RIPARAZIONE.");
                 }
                 
                 if ($avanzamentoLogico) {
                     $limiteRuolo = match ($ruoloDaAverCompletato) {
-                        'P' => $datiDaAggiornare['num_portieri'],
-                        'D' => $datiDaAggiornare['num_difensori'],
-                        'C' => $datiDaAggiornare['num_centrocampisti'],
-                        'A' => $datiDaAggiornare['num_attaccanti'],
+                        'P' => $datiDaAggiornare['num_portieri'] ?? $impostazioni->num_portieri,
+                        'D' => $datiDaAggiornare['num_difensori'] ?? $impostazioni->num_difensori,
+                        'C' => $datiDaAggiornare['num_centrocampisti'] ?? $impostazioni->num_centrocampisti,
+                        'A' => $datiDaAggiornare['num_attaccanti'] ?? $impostazioni->num_attaccanti,
                         default => 0,
                     };
                     
                     if ($limiteRuolo > 0) {
-                        $squadrePartecipanti = User::all(); // Admin è partecipante
+                        $squadrePartecipanti = User::where('is_admin', false)->get(); // Considera solo i non admin per i check di completamento
                         $squadreIncomplete = [];
                         foreach ($squadrePartecipanti as $squadra) {
                             $countQuery = GiocatoreAcquistato::where('user_id', $squadra->id)
@@ -322,28 +384,12 @@ class AdminController extends Controller
             }
         }
         
+        
         $messaggioSuccesso = 'Impostazioni aggiornate con successo.';
+        $impostazioni->fill($datiDaAggiornare); // Applica tutti i dati validati e processati
+        
         DB::beginTransaction();
         try {
-            if ($request->has('ordine_squadre')) {
-                foreach ($request->input('ordine_squadre') as $userId => $ordine) {
-                    $user = User::find($userId);
-                    if ($user) {
-                        $user->ordine_chiamata = ($ordine === '' || $ordine === null) ? null : (int)$ordine;
-                        $user->save();
-                    }
-                }
-                $messaggioSuccesso .= ' Ordine di chiamata delle squadre aggiornato.';
-                $impostazioni->refresh();
-            }
-            
-            // Applica i dati all'oggetto $impostazioni per usarlo con avanzaTurnoChiamata
-            foreach ($datiDaAggiornare as $key => $value) {
-                if (in_array($key, $impostazioni->getFillable())) {
-                    $impostazioni->$key = $value;
-                }
-            }
-            
             if ($isResetCompletoRichiesto) {
                 if (empty($tagListaPerOperazioni)) {
                     DB::rollBack();
@@ -352,36 +398,9 @@ class AdminController extends Controller
                 }
                 if (!in_array($impostazioni->fase_asta_corrente, ['PRE_ASTA', 'P'])) {
                     $impostazioni->fase_asta_corrente = 'P';
-                    $datiDaAggiornare['fase_asta_corrente'] = 'P'; // Assicurati che anche l'array per l'update finale sia corretto
                 }
                 
-                if (!empty($tagListaPerOperazioni)) { // Assicurati che il tag sia definito
-                    // 1. Annulla le chiamate che erano 'in_attesa_admin' o 'in_asta_tap_live' per il tag specificato
-                    $chiamateDaAnnullare = ChiamataAsta::where('tag_lista_calciatori', $tagListaPerOperazioni)
-                    ->whereIn('stato_chiamata', ['in_attesa_admin', 'in_asta_tap_live']);
-                    
-                    if ($chiamateDaAnnullare->count() > 0) {
-                        $chiamateDaAnnullare->update(['stato_chiamata' => 'annullata_admin', 'timestamp_fine_tap_prevista' => null]);
-                        Log::info("[ResetAsta] Chiamate asta 'in_attesa_admin' o 'in_asta_tap_live' aggiornate ad 'annullata_admin' per tag: {$tagListaPerOperazioni}. Numero: " . $chiamateDaAnnullare->count());
-                    } else {
-                        Log::info("[ResetAsta] Nessuna chiamata asta 'in_attesa_admin' o 'in_asta_tap_live' da annullare per tag: {$tagListaPerOperazioni}");
-                    }
-                    
-                    // 2. OPZIONALE: Cancella TUTTE le chiamate (incluse quelle già concluse o appena annullate) per il tag specificato
-                    // Se vuoi una pulizia completa dello storico per quel tag.
-                    // Se commenti questa parte, manterrai lo storico delle chiamate con stato 'annullata_admin', 'conclusa_tap_assegnato', ecc.
-                    $chiamateDaCancellare = ChiamataAsta::where('tag_lista_calciatori', $tagListaPerOperazioni);
-                    $numCancellate = $chiamateDaCancellare->delete(); // delete() restituisce il numero di record cancellati
-                    if ($numCancellate > 0) {
-                        Log::info("[ResetAsta] CANCELLATE {$numCancellate} chiamate asta (di qualsiasi stato) per tag: {$tagListaPerOperazioni}");
-                    } else {
-                        Log::info("[ResetAsta] Nessuna chiamata asta da cancellare per tag: {$tagListaPerOperazioni}");
-                    }
-                } else {
-                    Log::warning("[ResetAsta] Impossibile pulire 'chiamate_asta' perché tagListaPerOperazioni non è definito.");
-                }
-                
-                $crediti = $datiDaAggiornare['crediti_iniziali_lega'];
+                $crediti = $impostazioni->crediti_iniziali_lega;
                 User::query()->update([
                     'crediti_iniziali_squadra' => $crediti,
                     'crediti_rimanenti' => $crediti,
@@ -390,58 +409,73 @@ class AdminController extends Controller
                 GiocatoreAcquistato::whereHas('calciatore', function ($query) use ($tagListaPerOperazioni) {
                     $query->where('tag_lista_inserimento', $tagListaPerOperazioni);
                 })->delete();
-                ChiamataAsta::whereIn('stato_chiamata', ['in_attesa_admin', 'in_asta_tap_live'])
-                ->where('tag_lista_calciatori', $tagListaPerOperazioni)
-                ->update(['stato_chiamata' => 'annullata_admin', 'timestamp_fine_tap_prevista' => null]);
+                ChiamataAsta::where('tag_lista_calciatori', $tagListaPerOperazioni)->delete();
                 
-                if ($impostazioni->usa_ordine_chiamata) {
-                    $impostazioni->avanzaTurnoChiamata(null);
-                    // Il valore in $impostazioni->prossimo_turno_chiamata_user_id è già aggiornato
-                } else {
-                    $impostazioni->prossimo_turno_chiamata_user_id = null;
-                }
-                $datiDaAggiornare['prossimo_turno_chiamata_user_id'] = $impostazioni->prossimo_turno_chiamata_user_id; // Aggiorna l'array per l'update
-                $messaggioSuccesso = 'ASTA RESETTATA (per il tag '.$tagListaPerOperazioni.'): Crediti, rose, sostituzioni usate azzerate. Chiamate TAP annullate. Fase: ' . $this->getNomeFaseCompleto($impostazioni->fase_asta_corrente) . '.';
+                $impostazioni->prossimo_turno_chiamata_user_id = null;
+                $messaggioSuccesso = 'ASTA RESETTATA (per il tag '.$tagListaPerOperazioni.'): Crediti, rose, sostituzioni usate azzerate. Chiamate TAP cancellate. Fase: ' . $this->getNomeFaseCompleto($impostazioni->fase_asta_corrente) . '.';
                 Log::info("RESET ASTA ESEGUITO: " . $messaggioSuccesso);
-                
-            } else { // NON è un reset completo
-                if ($impostazioni->usa_ordine_chiamata) {
-                    $prossimoTurnoDalForm = $datiDaAggiornare['prossimo_turno_chiamata_user_id'] ?? null; // Usa il valore da $datiDaAggiornare
-                    $prossimoTurnoOriginaleDB = $impostazioni->getOriginal('prossimo_turno_chiamata_user_id');
-                    $usaOrdineChiamataOriginaleDB = $impostazioni->getOriginal('usa_ordine_chiamata');
-                    
-                    if (($usaOrdineChiamataOriginaleDB == false && $impostazioni->usa_ordine_chiamata == true) || // Appena attivato
-                        ($faseAttualeNelDB !== $faseAstaRichiestaDalForm && $impostazioni->usa_ordine_chiamata) ||      // Fase cambiata con ordine attivo
-                        (is_null($prossimoTurnoOriginaleDB) && $impostazioni->usa_ordine_chiamata) ||                  // Era attivo ma nessun prossimo impostato
-                        ($prossimoTurnoDalForm && $prossimoTurnoDalForm != $prossimoTurnoOriginaleDB)                  // Admin ha forzato un cambio
-                        ) {
-                            if ($prossimoTurnoDalForm && $prossimoTurnoDalForm != $prossimoTurnoOriginaleDB) {
-                                // L'admin ha forzato, $datiDaAggiornare['prossimo_turno_chiamata_user_id'] è già corretto
-                                Log::info("[UpdateSettings Ordine] Prossimo turno FORZATO dall'admin a ID: " . $datiDaAggiornare['prossimo_turno_chiamata_user_id']);
-                            } else {
-                                $impostazioni->avanzaTurnoChiamata(null); // Ricalcola/inizializza
-                                $datiDaAggiornare['prossimo_turno_chiamata_user_id'] = $impostazioni->prossimo_turno_chiamata_user_id;
-                                Log::info("[UpdateSettings Ordine] Prossimo turno ricalcolato/inizializzato. ID: " . ($datiDaAggiornare['prossimo_turno_chiamata_user_id'] ?? 'Nessuno'));
-                            }
-                        } // Altrimenti, se l'ordine era attivo, non è cambiato, e non forzato, $datiDaAggiornare['prossimo_turno_chiamata_user_id'] è già quello corretto dal form.
-                } else { // usa_ordine_chiamata è false
-                    $datiDaAggiornare['prossimo_turno_chiamata_user_id'] = null;
-                    Log::info("[UpdateSettings Ordine] Ordine chiamata disattivato. Prossimo resettato a null.");
-                }
             }
             
-            // Assicurati che tutti i campi in $datiDaAggiornare siano fillable nel modello ImpostazioneLega
-            $campiFillable = $impostazioni->getFillable();
-            $datiFinaliPerUpdate = array_intersect_key($datiDaAggiornare, array_flip($campiFillable));
+            // Logica per il prossimo turno di chiamata
+            if ($impostazioni->usa_ordine_chiamata) {
+                $prossimoTurnoDalForm = $request->input('prossimo_turno_chiamata_user_id'); // Valore originale dal form
+                $prossimoTurnoOriginaleDB = $impostazioni->getOriginal('prossimo_turno_chiamata_user_id');
+                $usaOrdineChiamataOriginaleDB = $impostazioni->getOriginal('usa_ordine_chiamata');
+                $ordinePersonalizzatoOriginaleDB = $impostazioni->getOriginal('ordine_squadre_personalizzato');
+                $ordinePersonalizzatoSalvato = $impostazioni->ordine_squadre_personalizzato; // Valore già aggiornato da fill()
+                
+                $ordineCambiatoEffettivamente = ($ordinePersonalizzatoSalvato !== $ordinePersonalizzatoOriginaleDB);
+                
+                $condizionePerRicalcolo =
+                ($usaOrdineChiamataOriginaleDB == false && $impostazioni->usa_ordine_chiamata == true) ||
+                ($faseAttualeNelDB !== $impostazioni->fase_asta_corrente && $impostazioni->usa_ordine_chiamata) ||
+                ($ordineCambiatoEffettivamente && $impostazioni->usa_ordine_chiamata) ||
+                (is_null($prossimoTurnoOriginaleDB) && $impostazioni->usa_ordine_chiamata && !$prossimoTurnoDalForm);
+                
+                if ($prossimoTurnoDalForm && $prossimoTurnoDalForm != $prossimoTurnoOriginaleDB) {
+                    $impostazioni->prossimo_turno_chiamata_user_id = $prossimoTurnoDalForm; // Accetta la forzatura dall'admin
+                    Log::info("[UpdateSettings Ordine] Prossimo turno FORZATO dall'admin a ID: " . $impostazioni->prossimo_turno_chiamata_user_id);
+                    // Verifica se l'utente forzato è idoneo
+                    $utenteForzato = User::find($impostazioni->prossimo_turno_chiamata_user_id);
+                    if (!$utenteForzato ||
+                        !$impostazioni->utentePuoChiamare($utenteForzato) ||
+                        (is_array($ordinePersonalizzatoSalvato) && !in_array($utenteForzato->id, $ordinePersonalizzatoSalvato)) ) {
+                            Log::info("[UpdateSettings Ordine] Utente forzato ID {$impostazioni->prossimo_turno_chiamata_user_id} non valido/idoneo o non nell'ordine. Ricalcolo partendo da lui.");
+                            $impostazioni->avanzaTurnoChiamata($impostazioni->prossimo_turno_chiamata_user_id, true);
+                        }
+                } elseif ($condizionePerRicalcolo) {
+                    Log::info("[UpdateSettings Ordine] Ricalcolo/Inizializzazione del prossimo turno (forzaReinizializzazione=true).");
+                    $impostazioni->avanzaTurnoChiamata(null, true);
+                }
+                // Se nessuna condizione di ricalcolo o forzatura, $impostazioni->prossimo_turno_chiamata_user_id è già quello dal form
+                // o quello originale se il campo form era vuoto.
+            } else {
+                $impostazioni->prossimo_turno_chiamata_user_id = null;
+                Log::info("[UpdateSettings Ordine] Ordine chiamata disattivato. Prossimo resettato a null.");
+            }
             
-            $impostazioni->update($datiFinaliPerUpdate);
+            // Fine logica prossimo turno
+            Log::debug('[UpdateSettings PRE-SAVE] Dati in $impostazioni->getAttributes(): ', $impostazioni->getAttributes());
+            Log::debug('[UpdateSettings PRE-SAVE] Dati in $impostazioni->getDirty(): ', $impostazioni->getDirty());
+            $impostazioni->save();
+            
+            // Se è stato fatto un reset e l'ordine è attivo, assicurati che il primo turno sia calcolato.
+            if ($isResetCompletoRichiesto && $impostazioni->usa_ordine_chiamata) {
+                $valorePrecedente = $impostazioni->prossimo_turno_chiamata_user_id;
+                $impostazioni->avanzaTurnoChiamata(null, true);
+                if ($impostazioni->prossimo_turno_chiamata_user_id !== $valorePrecedente) {
+                    $impostazioni->saveQuietly();
+                }
+                Log::info("[UpdateSettings Ordine] Reset completo: Prossimo turno post-salvataggio (ID: " . ($impostazioni->prossimo_turno_chiamata_user_id ?? 'Nessuno') . ")");
+            }
+            
             
             DB::commit();
             return redirect()->route('admin.impostazioni.index')->with('success', $messaggioSuccesso);
             
         } catch (Exception $e) {
             DB::rollBack();
-            Log::error("Errore aggiornamento impostazioni o ordine squadre: " . $e->getMessage(). " Trace: ".$e->getTraceAsString());
+            Log::error("Errore aggiornamento impostazioni: " . $e->getMessage() . " Trace: " . $e->getTraceAsString());
             return redirect()->route('admin.impostazioni.index')->withInput()->with('error', 'Errore durante il salvataggio: ' . $e->getMessage());
         }
     }
