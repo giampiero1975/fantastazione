@@ -18,49 +18,35 @@ class AstaController extends Controller
 {
     // ... (altri metodi come dashboard, mostraCalciatoriDisponibili, registraChiamata, gestisciRilancioTap, statoAstaTap) ...
     
-    public function finalizzaAstaTapScaduta(Request $request, ChiamataAsta $chiamataAsta)
+    public function finalizzaAstaTapScaduta(Request $request, ChiamataAsta $chiamataAstaRouteParam) // Rinominato per chiarezza
     {
-        Log::info("--- RICHIESTA FINALIZZAZIONE ASTA TAP ID: {$chiamataAsta->id} (Route Model Bound) ---");
-        
-        // ... (logica esistente per logging iniziale timestamp, ecc.) ...
+        $idChiamataOriginale = $chiamataAstaRouteParam->id;
+        Log::info("--- RICHIESTA FINALIZZAZIONE ASTA TAP ID: {$idChiamataOriginale} (Route Model Bound) ---");
         
         try {
-            return DB::transaction(function () use ($chiamataAsta, $request) {
-                $chiamata = ChiamataAsta::where('id', $chiamataAsta->id)
+            return DB::transaction(function () use ($idChiamataOriginale, $request) { // Passa l'ID, non l'oggetto Eloquent intero
+                $chiamata = ChiamataAsta::where('id', $idChiamataOriginale)
                 ->lockForUpdate()
-                ->with(['calciatore', 'utenteChiamante', 'migliorOfferenteTap', 'vincitore'])
+                ->with(['calciatore', 'utenteChiamante', 'migliorOfferenteTap'])
                 ->first();
                 
                 if (!$chiamata) {
-                    Log::error("[Finalizza Asta] Chiamata ID {$chiamataAsta->id} non trovata con lockForUpdate.");
+                    Log::error("[Finalizza Asta ID {$idChiamataOriginale}] Chiamata non trovata con lockForUpdate.");
                     return response()->json([
                         'status' => 'errore_non_trovata',
-                        'chiamata_id' => $chiamataAsta->id,
+                        'chiamata_id' => $idChiamataOriginale,
                         'messaggio_esito' => $this->sanitizeForJsonResponse('Chiamata asta non trovata durante la finalizzazione critica.'),
-                        'asta_live_corrente_id' => $this->getAstaLiveCorrenteId(optional($chiamataAsta)->tag_lista_calciatori)
+                        'asta_live_corrente_id' => $this->getAstaLiveCorrenteId(null)
                     ], 404);
                 }
                 
-                // Salva l'ID dell'utente che ha originariamente chiamato l'asta
-                $idUtenteChiamanteOriginario = $chiamata->user_id_chiamante;
-                $impostazioniLega = ImpostazioneLega::firstOrFail(); // Carica le impostazioni
+                Log::info("[Finalizza Asta ID {$chiamata->id}] Caricata con lock. Stato DB: {$chiamata->stato_chiamata}. Miglior Offerente ID DB: {$chiamata->miglior_offerente_tap_id}, Prezzo Attuale DB: {$chiamata->prezzo_attuale_tap}");
                 
-                // ... (Logica per parsare $timestampFineCarbon) ...
-                $timestampFineCarbon = null;
-                if ($chiamata->timestamp_fine_tap_prevista) {
-                    if ($chiamata->timestamp_fine_tap_prevista instanceof \Carbon\Carbon) {
-                        $timestampFineCarbon = $chiamata->timestamp_fine_tap_prevista;
-                    } else {
-                        try {
-                            $timestampFineCarbon = Carbon::parse((string)$chiamata->timestamp_fine_tap_prevista);
-                        } catch (\Exception $carbonEx) {
-                            Log::error("[Finalizza Asta DB Lock] Errore parsing manuale di 'timestamp_fine_tap_prevista': " . $carbonEx->getMessage());
-                        }
-                    }
-                }
+                $impostazioniLega = ImpostazioneLega::firstOrFail();
+                $idUtenteChiamanteOriginario = $chiamata->user_id_chiamante;
                 
                 if ($chiamata->stato_chiamata !== 'in_asta_tap_live') {
-                    Log::warning("[Finalizza Asta] Asta ID {$chiamata->id} non più 'in_asta_tap_live' (stato attuale: {$chiamata->stato_chiamata}).");
+                    Log::warning("[Finalizza Asta ID {$chiamata->id}] Asta non più 'in_asta_tap_live' (stato attuale: {$chiamata->stato_chiamata}). Finalizzazione interrotta.");
                     return response()->json([
                         'status' => $chiamata->stato_chiamata,
                         'chiamata_id' => $chiamata->id,
@@ -69,73 +55,161 @@ class AstaController extends Controller
                     ]);
                 }
                 
-                $scadutaEffettivamente = true;
-                if ($timestampFineCarbon) {
-                    if ($timestampFineCarbon->addSeconds(2)->isFuture()) { // Tolleranza
-                        $scadutaEffettivamente = false;
+                $timestampFineCarbon = null;
+                if ($chiamata->timestamp_fine_tap_prevista) {
+                    try {
+                        $timestampFineCarbon = Carbon::parse((string)$chiamata->timestamp_fine_tap_prevista);
+                    } catch (\Exception $carbonEx) {
+                        Log::error("[Finalizza Asta ID {$chiamata->id}] Errore parsing 'timestamp_fine_tap_prevista': " . $carbonEx->getMessage());
                     }
                 }
                 
+                $scadutaEffettivamente = true;
+                if ($timestampFineCarbon) {
+                    if ($timestampFineCarbon->addSeconds(3)->isFuture()) { // Tolleranza 3 secondi
+                        $scadutaEffettivamente = false;
+                    }
+                } else {
+                    Log::error("[Finalizza Asta ID {$chiamata->id}] Timestamp di fine non impostato. Impossibile verificare scadenza.");
+                    $scadutaEffettivamente = false;
+                }
+                
                 if (!$scadutaEffettivamente) {
-                    Log::warning("[Finalizza Asta] Tentativo di finalizzare Asta ID {$chiamata->id} non ancora scaduta.");
+                    Log::warning("[Finalizza Asta ID {$chiamata->id}] Tentativo di finalizzare Asta non ancora considerata scaduta dal server. Fine prevista: " . optional($timestampFineCarbon)->toDateTimeString());
                     return response()->json([
                         'status' => 'non_scaduta_ancora',
                         'chiamata_id' => $chiamata->id,
-                        'messaggio_esito' => $this->sanitizeForJsonResponse('Asta non ancora ufficialmente scaduta.'),
+                        'messaggio_esito' => $this->sanitizeForJsonResponse('Asta non ancora ufficialmente scaduta secondo il server.'),
                         'asta_live_corrente_id' => $chiamata->id
                     ]);
                 }
                 
-                // ... (TUTTA la tua logica esistente per determinare vincitore, fare controlli crediti, limiti rosa, banco saltato, ecc.) ...
-                // Questa logica dovrebbe determinare $esitoFinaleChiamata, $vincitoreSalvato, $prezzoFinaleSalvato, $messaggioEsito
+                Log::info("[Finalizza Asta ID {$chiamata->id}] Asta considerata scaduta. Procedo con logica di assegnazione.");
+                Log::info("[Finalizza Asta ID {$chiamata->id}] Dati Chiamata: Calciatore ID: {$chiamata->calciatore_id}, Prezzo Attuale: {$chiamata->prezzo_attuale_tap}, Miglior Offerente ID: {$chiamata->miglior_offerente_tap_id}");
                 
-                // Esempio di come potrebbe essere la fine della tua logica di assegnazione:
                 $calciatoreDaAssegnare = $chiamata->calciatore;
-                $calciatoreNome = optional($calciatoreDaAssegnare)->nome_completo ?? 'Sconosciuto';
-                $messaggioEsito = ''; // Verrà popolato dalla logica di assegnazione
+                if (!$calciatoreDaAssegnare) {
+                    Log::error("[Finalizza Asta ID {$chiamata->id}] ERRORE CRITICO: Calciatore non trovato sulla chiamata.");
+                    $chiamata->stato_chiamata = 'annullata_admin';
+                    $chiamata->timestamp_fine_tap_prevista = null;
+                    $chiamata->save();
+                    return response()->json([
+                        'status' => $chiamata->stato_chiamata,
+                        'chiamata_id' => $chiamata->id,
+                        'messaggio_esito' => $this->sanitizeForJsonResponse('Errore critico: calciatore associato all\'asta non trovato.'),
+                        'asta_live_corrente_id' => $this->getAstaLiveCorrenteId($chiamata->tag_lista_calciatori)
+                    ], 500);
+                }
+                $calciatoreNome = $calciatoreDaAssegnare->nome_completo;
                 
                 $vincitorePotenziale = null;
-                // ... (tua logica per trovare $vincitorePotenziale) ...
-                
-                $esitoFinaleChiamata = 'conclusa_tap_non_assegnato'; // Default
-                $vincitoreSalvato = null;
-                $prezzoFinaleSalvato = null;
-                
-                if ($vincitorePotenziale /* && altre condizioni valide */) {
-                    // ... (logica di assegnazione) ...
-                    // GiocatoreAcquistato::create(...);
-                    // $vincitorePotenziale->decrement(...);
-                    $esitoFinaleChiamata = 'conclusa_tap_assegnato';
-                    $vincitoreSalvato = $vincitorePotenziale->id;
-                    $prezzoFinaleSalvato = $chiamata->prezzo_attuale_tap;
-                    $messaggioEsito = "Asta conclusa: {$this->sanitizeForJsonResponse($calciatoreNome)} assegnato a {$this->sanitizeForJsonResponse($vincitorePotenziale->name)} per {$prezzoFinaleSalvato} crediti!";
-                    Log::info("[Finalizza Asta] ASSEGNATA: {$calciatoreNome} a {$vincitorePotenziale->name} per {$prezzoFinaleSalvato}.");
-                } else {
-                    // ... (logica per non assegnato) ...
-                    $messaggioEsito = "Asta per {$this->sanitizeForJsonResponse($calciatoreNome)} conclusa senza assegnazione valida.";
-                    Log::info("[Finalizza Asta] NON ASSEGNATA: {$calciatoreNome}.");
+                if ($chiamata->miglior_offerente_tap_id) {
+                    $vincitorePotenziale = User::find($chiamata->miglior_offerente_tap_id);
                 }
-                // Fine logica di assegnazione
+                
+                $assegnazioneValida = true;
+                $messaggioFallimentoValidazione = "Condizioni di assegnazione non soddisfatte."; // Default generico
+                
+                if (!$vincitorePotenziale) {
+                    Log::warning("[Finalizza Asta ID {$chiamata->id}] Nessun miglior offerente valido (ID: {$chiamata->miglior_offerente_tap_id}) per {$calciatoreNome}.");
+                    $assegnazioneValida = false;
+                    $messaggioFallimentoValidazione = "Miglior offerente non trovato o non valido.";
+                } else {
+                    Log::info("[Finalizza Asta ID {$chiamata->id}] Vincitore Potenziale: {$vincitorePotenziale->name} (ID: {$vincitorePotenziale->id}), Crediti Attuali: {$vincitorePotenziale->crediti_rimanenti}. Offerta da pagare: {$chiamata->prezzo_attuale_tap}");
+                    $prezzoFinaleAcquisto = $chiamata->prezzo_attuale_tap;
+                    
+                    if ($vincitorePotenziale->crediti_rimanenti < $prezzoFinaleAcquisto) {
+                        Log::warning("[Finalizza Validazione ID {$chiamata->id}] CREDITI INSUFFICIENTI per {$vincitorePotenziale->name}. Rimanenti: {$vincitorePotenziale->crediti_rimanenti}, Richiesti: {$prezzoFinaleAcquisto}");
+                        $assegnazioneValida = false;
+                        $messaggioFallimentoValidazione = "Crediti insufficienti per {$vincitorePotenziale->name}.";
+                    }
+                    
+                    if ($assegnazioneValida) {
+                        $rosaVincitoreQuery = GiocatoreAcquistato::where('user_id', $vincitorePotenziale->id);
+                        if ($chiamata->tag_lista_calciatori) {
+                            $rosaVincitoreQuery->whereHas('calciatore', function ($q) use ($chiamata) {
+                                $q->where('tag_lista_inserimento', $chiamata->tag_lista_calciatori);
+                            });
+                        }
+                        $rosaVincitore = $rosaVincitoreQuery->with('calciatore:id,ruolo')->get();
+                        $numGiocatoriAttualiRosaVincitore = $rosaVincitore->count();
+                        $conteggioRuoliVincitore = $rosaVincitore->whereNotNull('calciatore')->groupBy('calciatore.ruolo')->map->count();
+                        foreach (['P', 'D', 'C', 'A'] as $r) {
+                            if (!isset($conteggioRuoliVincitore[$r])) $conteggioRuoliVincitore[$r] = 0;
+                        }
+                        
+                        $limiteGiocatoriSistema = $impostazioniLega->num_portieri + $impostazioniLega->num_difensori + $impostazioniLega->num_centrocampisti + $impostazioniLega->num_attaccanti;
+                        $ruoloCalciatoreAsta = $calciatoreDaAssegnare->ruolo;
+                        $limitePerRuoloCorrente = match ($ruoloCalciatoreAsta) {
+                            'P' => $impostazioniLega->num_portieri, 'D' => $impostazioniLega->num_difensori,
+                            'C' => $impostazioniLega->num_centrocampisti, 'A' => $impostazioniLega->num_attaccanti, default => 0,
+                        };
+                        Log::info("[Finalizza Validazione ID {$chiamata->id}] Rosa per {$vincitorePotenziale->name}: Totali: {$numGiocatoriAttualiRosaVincitore}/{$limiteGiocatoriSistema}. Ruolo {$ruoloCalciatoreAsta}: ".($conteggioRuoliVincitore[$ruoloCalciatoreAsta] ?? 0)."/{$limitePerRuoloCorrente}");
+                        
+                        if ($limiteGiocatoriSistema > 0 && ($numGiocatoriAttualiRosaVincitore + 1) > $limiteGiocatoriSistema) {
+                            Log::warning("[Finalizza Validazione ID {$chiamata->id}] LIMITE ROSA TOTALE SUPERATO per {$vincitorePotenziale->name}.");
+                            $assegnazioneValida = false;
+                            $messaggioFallimentoValidazione = "Limite rosa totale superato per {$vincitorePotenziale->name}.";
+                        }
+                        if ($assegnazioneValida && $limitePerRuoloCorrente > 0 && (($conteggioRuoliVincitore[$ruoloCalciatoreAsta] ?? 0) + 1) > $limitePerRuoloCorrente) {
+                            Log::warning("[Finalizza Validazione ID {$chiamata->id}] LIMITE RUOLO {$ruoloCalciatoreAsta} SUPERATO per {$vincitorePotenziale->name}.");
+                            $assegnazioneValida = false;
+                            $messaggioFallimentoValidazione = "Limite ruolo {$ruoloCalciatoreAsta} superato per {$vincitorePotenziale->name}.";
+                        }
+                    }
+                    
+                    if ($assegnazioneValida) {
+                        $creditiRimanentiDopoAcquisto = $vincitorePotenziale->crediti_rimanenti - $prezzoFinaleAcquisto;
+                        $slotAncoraDaRiempireDopoAcquisto = $limiteGiocatoriSistema - ($numGiocatoriAttualiRosaVincitore + 1);
+                        if ($slotAncoraDaRiempireDopoAcquisto > 0 && $creditiRimanentiDopoAcquisto < $slotAncoraDaRiempireDopoAcquisto) {
+                            Log::warning("[Finalizza Validazione ID {$chiamata->id}] BANCO SALTATO per {$vincitorePotenziale->name}. Crediti dopo: {$creditiRimanentiDopoAcquisto}, Slot da riempire: {$slotAncoraDaRiempireDopoAcquisto}.");
+                            $assegnazioneValida = false;
+                            $messaggioFallimentoValidazione = "Regola banco saltato non rispettata per {$vincitorePotenziale->name}.";
+                        }
+                    }
+                }
+                
+                $esitoFinaleChiamata = 'conclusa_tap_non_assegnato';
+                $vincitoreSalvatoDB = null;
+                $messaggioEsitoFinalePerJson = "";
+                $prezzoDaRegistrareComeFinale = $chiamata->prezzo_attuale_tap; // Prezzo a cui si è chiusa l'asta
+                
+                if ($assegnazioneValida && $vincitorePotenziale) {
+                    GiocatoreAcquistato::create([
+                        'user_id' => $vincitorePotenziale->id,
+                        'calciatore_id' => $calciatoreDaAssegnare->id,
+                        'prezzo_acquisto' => $prezzoFinaleAcquisto,
+                        'ruolo_al_momento_acquisto' => $calciatoreDaAssegnare->ruolo,
+                    ]);
+                    $vincitorePotenziale->decrement('crediti_rimanenti', $prezzoFinaleAcquisto);
+                    $esitoFinaleChiamata = 'conclusa_tap_assegnato';
+                    $vincitoreSalvatoDB = $vincitorePotenziale->id;
+                    $messaggioEsitoFinalePerJson = "Asta conclusa: {$this->sanitizeForJsonResponse($calciatoreNome)} assegnato a {$this->sanitizeForJsonResponse($vincitorePotenziale->name)} per {$prezzoFinaleAcquisto} crediti!";
+                    Log::info("[Finalizza Asta ID {$chiamata->id}] ASSEGNATA: {$calciatoreNome} a {$vincitorePotenziale->name} per {$prezzoFinaleAcquisto}. Crediti rimanenti vincitore: {$vincitorePotenziale->fresh()->crediti_rimanenti}");
+                } else {
+                    $nomeMigliorOfferente = $vincitorePotenziale ? $vincitorePotenziale->name : ($chiamata->miglior_offerente_tap_id ? 'ID:'.$chiamata->miglior_offerente_tap_id : 'sconosciuto');
+                    $messaggioEsitoFinalePerJson = "Asta per {$this->sanitizeForJsonResponse($calciatoreNome)} conclusa senza assegnazione valida. (Miglior offerente: {$this->sanitizeForJsonResponse($nomeMigliorOfferente)}). Motivo: {$this->sanitizeForJsonResponse($messaggioFallimentoValidazione)}";
+                    Log::info("[Finalizza Asta ID {$chiamata->id}] NON ASSEGNATA: {$calciatoreNome}. Miglior offerente: {$nomeMigliorOfferente}. Motivo: {$messaggioFallimentoValidazione}");
+                }
                 
                 $chiamata->stato_chiamata = $esitoFinaleChiamata;
-                $chiamata->vincitore_user_id = $vincitoreSalvato;
-                $chiamata->prezzo_finale_assegnazione = $prezzoFinaleSalvato;
-                $chiamata->timestamp_fine_tap_prevista = null; // Asta conclusa
+                $chiamata->vincitore_user_id = $vincitoreSalvatoDB;
+                $chiamata->prezzo_finale_assegnazione = $prezzoDaRegistrareComeFinale; // Registra il prezzo di chiusura
+                $chiamata->timestamp_fine_tap_prevista = null;
                 $chiamata->save();
                 
-                // === PUNTO CHIAVE: AVANZA IL TURNO DOPO CHE L'ASTA È CONCLUSA ===
                 if ($impostazioniLega->usa_ordine_chiamata && $idUtenteChiamanteOriginario) {
                     Log::info("[FinalizzaAstaTAP ID:{$chiamata->id}] Avanzamento turno per utente chiamante originario ID: {$idUtenteChiamanteOriginario}");
                     $impostazioniLega->avanzaTurnoChiamata($idUtenteChiamanteOriginario);
                 }
-                // ==============================================================
                 
-                Log::info("[Finalizza Asta] Asta TAP ID {$chiamata->id} conclusa. Stato: {$chiamata->stato_chiamata}");
+                Log::info("[Finalizza Asta ID {$chiamata->id}] Conclusa. Stato DB salvato: {$chiamata->stato_chiamata}");
+                $chiamata->loadMissing(['vincitore:id,name']); // Ricarica la relazione per il nome aggiornato
                 
                 return response()->json([
                     'status' => $chiamata->stato_chiamata,
                     'chiamata_id' => $chiamata->id,
-                    'messaggio_esito' => $this->sanitizeForJsonResponse($messaggioEsito),
+                    'messaggio_esito' => $messaggioEsitoFinalePerJson,
                     'vincitore_nome' => $this->sanitizeForJsonResponse(optional($chiamata->vincitore)->name),
                     'calciatore_nome' => $this->sanitizeForJsonResponse($calciatoreNome),
                     'prezzo_finale' => $chiamata->prezzo_finale_assegnazione,
@@ -143,13 +217,13 @@ class AstaController extends Controller
                 ]);
             });
         } catch (Exception $e) {
-            Log::error("[Finalizza Asta Catch Generale] Errore per Chiamata ID {$chiamataAsta->id}: " . $e->getMessage() . " in " . $e->getFile() . ":" . $e->getLine());
-            // ... (gestione eccezioni response()->json) ...
+            Log::error("[Finalizza Asta Catch Generale] Errore per Chiamata ID {$idChiamataOriginale}: " . $e->getMessage() . " IN FILE: " . $e->getFile() . ":" . $e->getLine() . " Trace: " . $e->getTraceAsString());
+            $tagListaChiamataFallita = optional(ChiamataAsta::find($idChiamataOriginale))->tag_lista_calciatori;
             return response()->json([
                 'status' => 'errore_server_finalizzazione',
-                'chiamata_id' => $chiamataAsta->id,
+                'chiamata_id' => $idChiamataOriginale,
                 'messaggio_esito' => $this->sanitizeForJsonResponse('Errore server durante la finalizzazione dell\'asta: '. $e->getMessage()),
-                'asta_live_corrente_id' => $this->getAstaLiveCorrenteId(optional(ChiamataAsta::find($chiamataAsta->id))->tag_lista_calciatori)
+                'asta_live_corrente_id' => $this->getAstaLiveCorrenteId($tagListaChiamataFallita)
             ], 500);
         }
     }
@@ -160,19 +234,11 @@ class AstaController extends Controller
     private function sanitizeForJsonResponse($string)
     {
         if ($string === null) return null;
-        $string = (string)$string;
-        $converted = @mb_convert_encoding($string, 'UTF-8', 'UTF-8');
-        if ($converted === false || !mb_check_encoding($converted, 'UTF-8')) {
-            $sanitized = preg_replace('/[^\x20-\x7E\p{L}\p{N}\p{P}\p{S}\p{Z}]/u', '', $string);
-            if (mb_check_encoding($sanitized, 'UTF-8')) {
-                return $sanitized;
-            }
-            Log::warning("[Sanitize JSON] Stringa non convertibile a UTF-8 valido (originale in hex): " . bin2hex($string));
-            return "Dato non visualizzabile (encoding errato)";
-        }
-        return $converted;
+        // Se la stringa è già UTF-8 e pulita, il cast a stringa potrebbe essere sufficiente.
+        // mb_convert_encoding può aiutare a normalizzare.
+        return mb_convert_encoding((string)$string, 'UTF-8', 'UTF-8');
     }
-
+    
     /**
      * Gestisce la visualizzazione della dashboard (smista tra admin e squadra).
      */
@@ -610,44 +676,55 @@ class AstaController extends Controller
     // In app/Http/Controllers/AstaController.php
     // In app/Http/Controllers/AstaController.php
     
-    public function statoAstaTap(Request $request, $idChiamataAsta) // Riceve l'ID come parametro
+    public function statoAstaTap(Request $request, $idChiamataAstaUrl)
     {
-        Log::info("[Polling Server V3] Richiesta stato per chiamata ID URL: {$idChiamataAsta}.");
+        $idChiamataRichiesta = (int) $idChiamataAstaUrl;
+        Log::info("[Polling Server V4] Richiesta stato per chiamata ID URL: {$idChiamataRichiesta}.");
         
         $chiamataRichiesta = ChiamataAsta::with([
-            'calciatore',
-            'migliorOfferenteTap', // Relazione al modello User
-            'utenteChiamante',     // Relazione al modello User
-            'vincitore'            // Relazione al modello User
-        ])->find($idChiamataAsta);
+            'calciatore', 'migliorOfferenteTap', 'utenteChiamante', 'vincitore'
+        ])->find($idChiamataRichiesta);
         
-        $impostazioniLega = ImpostazioneLega::first(); // Necessario per logica asta_live_corrente_id e crediti
-        $astaLiveAttualmente = null;
+        $impostazioniLega = ImpostazioneLega::firstOrFail();
+        $tagAttivo = $impostazioniLega->tag_lista_attiva;
         
-        if ($impostazioniLega && $impostazioniLega->modalita_asta === 'tap') {
-            $queryAstaLive = ChiamataAsta::where('stato_chiamata', 'in_asta_tap_live');
-            if ($impostazioniLega->tag_lista_attiva) {
-                $queryAstaLive->where('tag_lista_calciatori', $impostazioniLega->tag_lista_attiva);
-            }
-            $astaLiveAttualmente = $queryAstaLive->select('id')->first();
-            if ($astaLiveAttualmente) {
-                Log::info("[Polling Server V3] Trovata asta LIVE CORRENTE (ID: {$astaLiveAttualmente->id}) per tag '{$impostazioniLega->tag_lista_attiva}'.");
-            } else {
-                Log::info("[Polling Server V3] Nessuna asta LIVE CORRENTE trovata per tag '{$impostazioniLega->tag_lista_attiva}'.");
+        $astaLiveCorrenteId = $this->getAstaLiveCorrenteId($tagAttivo);
+        $astaInAttesaAdminId = null;
+        $datiAstaInAttesaAdmin = null;
+        
+        if ($impostazioniLega->modalita_asta === 'tap' && $impostazioniLega->asta_tap_approvazione_admin) {
+            $chiamataInAttesa = ChiamataAsta::where('stato_chiamata', 'in_attesa_admin')
+            ->where('tag_lista_calciatori', $tagAttivo)
+            ->with(['calciatore:id,nome_completo', 'utenteChiamante:id,name'])
+            ->orderBy('created_at', 'desc')
+            ->select('id','calciatore_id','user_id_chiamante') // Seleziona solo ciò che serve
+            ->first();
+            
+            if ($chiamataInAttesa) {
+                $astaInAttesaAdminId = $chiamataInAttesa->id;
+                $datiAstaInAttesaAdmin = [
+                    'id' => $chiamataInAttesa->id,
+                    'calciatore_nome' => $this->sanitizeForJsonResponse(optional($chiamataInAttesa->calciatore)->nome_completo),
+                    'chiamante_nome' => $this->sanitizeForJsonResponse(optional($chiamataInAttesa->utenteChiamante)->name),
+                ];
+                Log::info("[Polling Server V4] Trovata asta IN ATTESA ADMIN (ID: {$astaInAttesaAdminId}) per tag '{$tagAttivo}'.");
             }
         }
         
         if (!$chiamataRichiesta) {
-            Log::error("[Polling Server V3] Chiamata ID {$idChiamataAsta} NON TROVATA CON FIND().");
+            Log::warning("[Polling Server V4] Chiamata ID {$idChiamataRichiesta} NON TROVATA.");
             return response()->json([
                 'status' => 'non_trovata',
-                'chiamata_id' => (int)$idChiamataAsta,
-                'messaggio_esito' => 'Asta richiesta (ID: '.$idChiamataAsta.') non trovata.',
-                'asta_live_corrente_id' => $astaLiveAttualmente ? $astaLiveAttualmente->id : null
-            ], 404); // Importante restituire 404 se l'asta specifica non c'è
+                'chiamata_id' => $idChiamataRichiesta,
+                'messaggio_esito' => $this->sanitizeForJsonResponse('Asta richiesta (ID: '.$idChiamataRichiesta.') non più disponibile o terminata.'),
+                'asta_live_corrente_id' => $astaLiveCorrenteId,
+                'asta_in_attesa_admin_id' => $astaInAttesaAdminId,
+                'dati_asta_in_attesa_admin' => $datiAstaInAttesaAdmin,
+                'crediti_utente_corrente' => Auth::check() ? Auth::user()->crediti_rimanenti : null,
+            ], 200);
         }
         
-        Log::info("[Polling Server V3] Chiamata ID {$chiamataRichiesta->id} CARICATA (via find). Stato DB: {$chiamataRichiesta->stato_chiamata}, Tag Lista: {$chiamataRichiesta->tag_lista_calciatori}");
+        Log::info("[Polling Server V4] Chiamata ID {$chiamataRichiesta->id} CARICATA. Stato DB: {$chiamataRichiesta->stato_chiamata}, Tag Lista: {$chiamataRichiesta->tag_lista_calciatori}");
         
         $responseData = [
             'status' => $chiamataRichiesta->stato_chiamata,
@@ -662,21 +739,18 @@ class AstaController extends Controller
             'secondi_rimanenti' => 0,
             'messaggio_esito' => null,
             'vincitore_nome' => null,
-            'prezzo_finale' => null,
+            'prezzo_finale' => $chiamataRichiesta->prezzo_finale_assegnazione, // Invia sempre il prezzo finale
             'miglior_offerente' => null,
             'miglior_offerente_id' => $chiamataRichiesta->miglior_offerente_tap_id,
-            'asta_live_corrente_id' => $astaLiveAttualmente ? $astaLiveAttualmente->id : null,
+            'asta_live_corrente_id' => $astaLiveCorrenteId,
+            'asta_in_attesa_admin_id' => $astaInAttesaAdminId,
+            'dati_asta_in_attesa_admin' => $datiAstaInAttesaAdmin,
             'crediti_utente_corrente' => Auth::check() ? Auth::user()->crediti_rimanenti : null,
         ];
         
         if ($chiamataRichiesta->stato_chiamata === 'in_asta_tap_live') {
-            $nomeMigliorOfferente = null;
-            if (isset($chiamataRichiesta->migliorOfferenteTap)) {
-                $nomeMigliorOfferente = $chiamataRichiesta->migliorOfferenteTap->name;
-            } elseif ($chiamataRichiesta->miglior_offerente_tap_id === $chiamataRichiesta->user_id_chiamante && isset($chiamataRichiesta->utenteChiamante)) {
-                $nomeMigliorOfferente = $chiamataRichiesta->utenteChiamante->name;
-            }
-            $responseData['miglior_offerente'] = $this->sanitizeForJsonResponse($nomeMigliorOfferente ?? 'Nessuno');
+            $nomeMigliorOfferente = optional($chiamataRichiesta->migliorOfferenteTap)->name ?? optional($chiamataRichiesta->utenteChiamante)->name;
+            $responseData['miglior_offerente'] = $this->sanitizeForJsonResponse($nomeMigliorOfferente);
             
             if ($chiamataRichiesta->timestamp_fine_tap_prevista) {
                 try {
@@ -684,38 +758,32 @@ class AstaController extends Controller
                     $responseData['timestamp_fine_prevista_unix'] = $tsFineCarbon->timestamp;
                     $responseData['secondi_rimanenti'] = max(0, Carbon::now()->diffInSeconds($tsFineCarbon, false));
                 } catch (\Exception $e) {
-                    Log::error("Errore parsing timestamp_fine_tap_prevista per Chiamata ID {$chiamataRichiesta->id} (val: '{$chiamataRichiesta->timestamp_fine_tap_prevista}'): " . $e->getMessage());
-                    $responseData['timestamp_fine_prevista_unix'] = null; // o un valore che indica errore
-                    $responseData['secondi_rimanenti'] = -1; // o un valore che indica errore
+                    Log::error("Errore parsing timestamp_fine_tap_prevista per Chiamata ID {$chiamataRichiesta->id}: " . $e->getMessage());
+                    $responseData['secondi_rimanenti'] = -1;
                 }
             }
-        } elseif ($chiamataRichiesta->stato_chiamata === 'conclusa_tap_assegnato' && isset($chiamataRichiesta->vincitore) && isset($chiamataRichiesta->calciatore)) {
-            $responseData['messaggio_esito'] = "Asta conclusa: {$this->sanitizeForJsonResponse($chiamataRichiesta->calciatore->nome_completo)} assegnato a {$this->sanitizeForJsonResponse($chiamataRichiesta->vincitore->name)} per {$chiamataRichiesta->prezzo_finale_assegnazione} crediti.";
-            $responseData['vincitore_nome'] = $this->sanitizeForJsonResponse($chiamataRichiesta->vincitore->name);
-            $responseData['prezzo_finale'] = $chiamataRichiesta->prezzo_finale_assegnazione;
-        }
-        elseif ($chiamataRichiesta->stato_chiamata === 'conclusa_tap_non_assegnato') {
+        } elseif ($chiamataRichiesta->stato_chiamata === 'conclusa_tap_assegnato') {
+            $responseData['messaggio_esito'] = "Asta conclusa: {$this->sanitizeForJsonResponse(optional($chiamataRichiesta->calciatore)->nome_completo)} assegnato a {$this->sanitizeForJsonResponse(optional($chiamataRichiesta->vincitore)->name)} per {$chiamataRichiesta->prezzo_finale_assegnazione} crediti.";
+            $responseData['vincitore_nome'] = $this->sanitizeForJsonResponse(optional($chiamataRichiesta->vincitore)->name);
+        } elseif ($chiamataRichiesta->stato_chiamata === 'conclusa_tap_non_assegnato') {
             $responseData['messaggio_esito'] = "Asta per {$this->sanitizeForJsonResponse(optional($chiamataRichiesta->calciatore)->nome_completo)} conclusa senza assegnazione valida.";
-        }
-        elseif ($chiamataRichiesta->stato_chiamata === 'annullata_admin' && isset($chiamataRichiesta->calciatore)) {
-            $responseData['messaggio_esito'] = "Asta per {$this->sanitizeForJsonResponse($chiamataRichiesta->calciatore->nome_completo)} annullata dall'amministratore.";
-        }
-        elseif ($chiamataRichiesta->stato_chiamata === 'in_attesa_admin' && isset($chiamataRichiesta->calciatore) && isset($chiamataRichiesta->utenteChiamante)) {
-            $responseData['messaggio_esito'] = "{$this->sanitizeForJsonResponse($chiamataRichiesta->calciatore->nome_completo)} chiamato da {$this->sanitizeForJsonResponse($chiamataRichiesta->utenteChiamante->name)}. In attesa di avvio da parte dell'admin.";
+        } elseif ($chiamataRichiesta->stato_chiamata === 'annullata_admin') {
+            $responseData['messaggio_esito'] = "Asta per {$this->sanitizeForJsonResponse(optional($chiamataRichiesta->calciatore)->nome_completo)} annullata dall'amministratore.";
+        } elseif ($chiamataRichiesta->stato_chiamata === 'in_attesa_admin') {
+            // Questo messaggio verrà sovrascritto nel JS se $data.dati_asta_in_attesa_admin è presente,
+            // ma è bene averlo come fallback se l'ID richiesto è proprio quello in attesa.
+            $responseData['messaggio_esito'] = "{$this->sanitizeForJsonResponse(optional($chiamataRichiesta->calciatore)->nome_completo)} chiamato da {$this->sanitizeForJsonResponse(optional($chiamataRichiesta->utenteChiamante)->name)}. In attesa di avvio da parte dell'admin.";
         }
         
-        // La riga 511 (o giù di lì) problematica era probabilmente il log qui sotto.
-        // Ho corretto $chiamataAstaUrl->id con $idChiamataAsta che è il parametro ricevuto.
-        Log::debug("[Polling Server V3] Dati inviati per asta ID {$chiamataRichiesta->id} (richiesta per ID URL: {$idChiamataAsta}): ", $responseData);
+        Log::debug("[Polling Server V4] Dati inviati per asta ID {$chiamataRichiesta->id} (richiesta per ID URL: {$idChiamataRichiesta}): ", $responseData);
         return response()->json($responseData);
     }
-    
     /**
      * Funzione helper per ottenere l'ID dell'asta live corrente.
      */
     private function getAstaLiveCorrenteId($tagListaRiferimento = null)
     {
-        $impostazioniLega = ImpostazioneLega::first();
+        $impostazioniLega = ImpostazioneLega::first(); // Potrebbe essere passato come argomento per efficienza
         $tagDaUsare = $tagListaRiferimento ?: optional($impostazioniLega)->tag_lista_attiva;
         
         if (!$impostazioniLega || $impostazioniLega->modalita_asta !== 'tap' || !$tagDaUsare) {
@@ -724,117 +792,184 @@ class AstaController extends Controller
         
         $astaLive = ChiamataAsta::where('stato_chiamata', 'in_asta_tap_live')
         ->where('tag_lista_calciatori', $tagDaUsare)
-        ->select('id')
-        ->orderBy('updated_at', 'desc') // Prende la più recente se ce ne fossero multiple per errore
+        ->select('id') // Seleziona solo l'ID
+        ->orderBy('updated_at', 'desc') // Prendi la più recente se ce ne fossero > 1 (improbabile)
         ->first();
         return optional($astaLive)->id;
     }
     
     public function mostraAstaLive(Request $request)
     {
-        Log::info("--- Entrato in AstaController@mostraAstaLive ---");
-        $impostazioniLega = ImpostazioneLega::first(); // Usiamo first() per evitare errore se non esiste
+        Log::info("--- Entrato in AstaController@mostraAstaLive (Versione con oggetto impostazioniLega) ---");
+        $impostazioniLega = ImpostazioneLega::first(); // Oggetto Eloquent
         
         if (!$impostazioniLega) {
-            Log::error("CRITICO: ImpostazioniLega non trovate in mostraAstaLive. L'admin deve configurarle.");
-            // Potresti voler reindirizzare o mostrare una vista di errore specifica
-            // return redirect()->route('qualche.rotta.errore')->with('error', 'Impostazioni della lega non configurate.');
-            // Per ora, per debug, continuiamo ma ci aspettiamo problemi
-            $impostazioniLega = new ImpostazioneLega(); // Oggetto vuoto per evitare errori successivi, ma non ideale
-            $impostazioniLega->modalita_asta = 'voce'; // Default sicuro
-            $impostazioniLega->tag_lista_attiva = null;
-            $impostazioniLega->usa_ordine_chiamata = false;
-            $impostazioniLega->prossimo_turno_chiamata_user_id = null;
+            Log::error("[mostraAstaLive] CRITICO: ImpostazioniLega non trovate.");
+            // Crea un oggetto fittizio con i valori attesi dalla vista per evitare errori nulli
+            $impostazioniLega = new ImpostazioneLega([
+                'modalita_asta' => 'voce', 'tag_lista_attiva' => null,
+                'fase_asta_corrente' => 'PRE_ASTA', 'usa_ordine_chiamata' => false,
+                'prossimo_turno_chiamata_user_id' => null, 'asta_tap_approvazione_admin' => true,
+                'num_portieri' => 3, 'num_difensori' => 8, 'num_centrocampisti' => 8, 'num_attaccanti' => 6, // Valori di default
+            ]);
         }
-        
-        Log::info("ImpostazioniLega caricate. Modalita asta: " . $impostazioniLega->modalita_asta . ", Tag attivo: " . ($impostazioniLega->tag_lista_attiva ?? 'NON IMPOSTATO'));
-        Log::info("Usa ordine chiamata: " . ($impostazioniLega->usa_ordine_chiamata ? 'Sì' : 'No') . ", Prossimo turno User ID: " . ($impostazioniLega->prossimo_turno_chiamata_user_id ?? 'N/D'));
-        
         
         $utenteLoggato = Auth::user();
         $creditiRimanenti = $utenteLoggato ? $utenteLoggato->crediti_rimanenti : 0;
-        Log::info("Utente loggato ID: " . ($utenteLoggato ? $utenteLoggato->id : 'Guest') . ", Crediti: " . $creditiRimanenti);
         
+        // Inizializza le variabili per la vista
+        $idChiamataInizialePerPolling = null;
+        $isAstaAttualmenteLive = false;
+        $timestampFineInizialePerCountdown = '';
+        $statoChiamataDaMostrare = 'non_attiva';
+        $calciatoreInAsta_id = null;
+        $calciatoreInAsta_nome = null;
+        $calciatoreInAsta_ruolo = null;
+        $calciatoreInAsta_squadra = null;
+        $prezzoPartenzaTapIniziale = null;
+        $prezzoAttualeTapIniziale = null;
+        $migliorOfferente_nome = null;
+        $migliorOfferenteIdIniziale = null;
+        $initialDatiAstaInAttesa_calciatoreNome = '';
+        $initialDatiAstaInAttesa_chiamanteNome = '';
+        $messaggioEsitoIniziale = null;
+        $vincitoreNomeIniziale = null;
+        $prezzoFinaleIniziale = null;
+        $prossimoChiamanteNome = __('Da definire');
+        $prossimoChiamanteId = null;
         
-        $chiamataDaMostrare = null;
-        $calciatoreInAsta = null;
-        $migliorOfferente = null;
-        $prossimoChiamanteNome = null;
         
         if ($impostazioniLega->modalita_asta === 'tap') {
-            Log::info("Modalità TAP attiva, cerco chiamata 'in_asta_tap_live'...");
+            $tagAttivo = $impostazioniLega->tag_lista_attiva;
+            Log::info("[mostraAstaLive] Modalità TAP. Cerco chiamate per tag: " . ($tagAttivo ?? 'Nessuno'));
             
-            $queryAstaLive = ChiamataAsta::where('stato_chiamata', 'in_asta_tap_live');
+            $chiamataDaMostrareOggettoElq = null;
             
-            // IMPORTANTE: Filtro per tag_lista_calciatori se è impostato nelle impostazioni lega
-            // Questo assicura che stiamo guardando l'asta per la stagione/lista corretta.
-            if ($impostazioniLega->tag_lista_attiva) {
-                Log::info("Applico filtro per tag_lista_calciatori: " . $impostazioniLega->tag_lista_attiva);
-                $queryAstaLive->where('tag_lista_calciatori', $impostazioniLega->tag_lista_attiva);
-            } else {
-                Log::warning("Nessun tag_lista_attiva impostato in ImpostazioneLega. La ricerca di aste live potrebbe non essere accurata se ci sono più aste storiche.");
-            }
-            
-            $chiamataDaMostrare = $queryAstaLive->with(['calciatore', 'migliorOfferenteTap', 'utenteChiamante'])->first();
-            
-            if ($chiamataDaMostrare) {
-                Log::info("TROVATA chiamata 'in_asta_tap_live' (ID: {$chiamataDaMostrare->id}), Calciatore ID: " . (optional($chiamataDaMostrare->calciatore)->id ?? 'N/D'));
-            } else {
-                Log::info("NESSUNA chiamata 'in_asta_tap_live' trovata. Cerco l'ultima chiamata processata/in attesa...");
-                $statiDaCercare = ['conclusa_tap_assegnato', 'conclusa_tap_non_assegnato', 'annullata_admin'];
-                if ($impostazioniLega->asta_tap_approvazione_admin) {
-                    $statiDaCercare[] = 'in_attesa_admin';
+            if ($tagAttivo) {
+                $chiamataQuery = ChiamataAsta::where('tag_lista_calciatori', $tagAttivo);
+                $astaLive = (clone $chiamataQuery)->where('stato_chiamata', 'in_asta_tap_live')->orderBy('updated_at', 'desc')->first();
+                
+                if ($astaLive) {
+                    $chiamataDaMostrareOggettoElq = $astaLive;
+                } else {
+                    if ($impostazioniLega->asta_tap_approvazione_admin) {
+                        $astaInAttesa = (clone $chiamataQuery)->where('stato_chiamata', 'in_attesa_admin')->orderBy('created_at', 'desc')->first();
+                        if ($astaInAttesa) $chiamataDaMostrareOggettoElq = $astaInAttesa;
+                    }
+                    if (!$chiamataDaMostrareOggettoElq) {
+                        $statiConclusi = ['conclusa_tap_assegnato', 'conclusa_tap_non_assegnato', 'annullata_admin'];
+                        $ultimaChiamataProcessata = (clone $chiamataQuery)->whereIn('stato_chiamata', $statiConclusi)->orderBy('updated_at', 'desc')->first();
+                        if ($ultimaChiamataProcessata) $chiamataDaMostrareOggettoElq = $ultimaChiamataProcessata;
+                    }
                 }
                 
-                $queryUltimaChiamata = ChiamataAsta::whereIn('stato_chiamata', $statiDaCercare);
-                if ($impostazioniLega->tag_lista_attiva) {
-                    Log::info("Applico filtro tag_lista_calciatori anche per ultima chiamata processata: " . $impostazioniLega->tag_lista_attiva);
-                    $queryUltimaChiamata->where('tag_lista_calciatori', $impostazioniLega->tag_lista_attiva);
-                }
-                $chiamataDaMostrare = $queryUltimaChiamata->with(['calciatore', 'migliorOfferenteTap', 'utenteChiamante', 'vincitore'])
-                ->orderBy('updated_at', 'desc')
-                ->first();
-                if ($chiamataDaMostrare) {
-                    Log::info("TROVATA ultima chiamata processata/attesa (ID: {$chiamataDaMostrare->id}), Stato: {$chiamataDaMostrare->stato_chiamata}");
-                } else {
-                    Log::info("NESSUNA ultima chiamata processata/attesa trovata.");
-                }
-            }
-            
-            if ($chiamataDaMostrare) {
-                $calciatoreInAsta = $chiamataDaMostrare->calciatore; // Può essere null se l'asta non è live ma è solo un esito
-                if ($chiamataDaMostrare->stato_chiamata === 'in_asta_tap_live') {
-                    if ($chiamataDaMostrare->migliorOfferenteTap) {
-                        $migliorOfferente = $chiamataDaMostrare->migliorOfferenteTap;
-                    } elseif (isset($chiamataDaMostrare->utenteChiamante) && $chiamataDaMostrare->miglior_offerente_tap_id == $chiamataDaMostrare->user_id_chiamante) {
-                        $migliorOfferente = $chiamataDaMostrare->utenteChiamante;
+                if ($chiamataDaMostrareOggettoElq) {
+                    Log::info("[mostraAstaLive] Chiamata da processare: ID {$chiamataDaMostrareOggettoElq->id}, Stato {$chiamataDaMostrareOggettoElq->stato_chiamata}");
+                    $idChiamataInizialePerPolling = $chiamataDaMostrareOggettoElq->id;
+                    $statoChiamataDaMostrare = $chiamataDaMostrareOggettoElq->stato_chiamata;
+                    
+                    $calciatore = Calciatore::find($chiamataDaMostrareOggettoElq->calciatore_id);
+                    if ($calciatore) {
+                        $calciatoreInAsta_id = $calciatore->id;
+                        $calciatoreInAsta_nome = $this->sanitizeForJsonResponse($calciatore->nome_completo);
+                        $calciatoreInAsta_ruolo = $this->sanitizeForJsonResponse($calciatore->ruolo);
+                        $calciatoreInAsta_squadra = $this->sanitizeForJsonResponse($calciatore->squadra_serie_a);
                     }
-                    Log::info("Calciatore per asta live: " . (optional($calciatoreInAsta)->nome_completo ?? 'N/D') . ", Miglior offerente: " . (optional($migliorOfferente)->name ?? 'N/D'));
+                    
+                    if ($chiamataDaMostrareOggettoElq->stato_chiamata === 'in_asta_tap_live') {
+                        $isAstaAttualmenteLive = true;
+                        $prezzoPartenzaTapIniziale = $chiamataDaMostrareOggettoElq->prezzo_partenza_tap;
+                        $prezzoAttualeTapIniziale = $chiamataDaMostrareOggettoElq->prezzo_attuale_tap;
+                        $migliorOfferenteIdIniziale = $chiamataDaMostrareOggettoElq->miglior_offerente_tap_id;
+                        
+                        if ($migliorOfferenteIdIniziale) {
+                            $offerente = User::find($migliorOfferenteIdIniziale);
+                            if ($offerente) {
+                                $migliorOfferente_nome = $this->sanitizeForJsonResponse($offerente->name);
+                                if ($migliorOfferenteIdIniziale == $chiamataDaMostrareOggettoElq->user_id_chiamante) {
+                                    $migliorOfferente_nome .= " (chiamata)";
+                                }
+                            }
+                        }
+                        
+                        // Gestione di timestamp_fine_tap_prevista (che ora è una stringa se i cast sono commentati nel modello)
+                        // Se il casting nel modello ChiamataAsta FUNZIONA, $chiamataDaMostrareOggettoElq->timestamp_fine_tap_prevista sarà Carbon.
+                        // Se il casting FALLISCE (perché ChiamataAsta non trova Carbon), sarà una stringa.
+                        $timestampValue = $chiamataDaMostrareOggettoElq->timestamp_fine_tap_prevista;
+                        Log::info("[mostraAstaLive] Valore per timestamp_fine_tap_prevista (tipo: ".gettype($timestampValue)."): " . print_r($timestampValue, true));
+                        
+                        if (!empty($timestampValue)) {
+                            try {
+                                if ($timestampValue instanceof \Carbon\Carbon) {
+                                    $carbonDate = $timestampValue;
+                                    Log::info("[mostraAstaLive] timestamp_fine_tap_prevista ERA un oggetto Carbon.");
+                                } else {
+                                    Log::warning("[mostraAstaLive] timestamp_fine_tap_prevista NON era un oggetto Carbon, ma ".gettype($timestampValue).". Tentando parse manuale.");
+                                    $carbonDate = \Carbon\Carbon::parse((string)$timestampValue); // Parse esplicito
+                                }
+                                $timestampFineInizialePerCountdown = (string) $carbonDate->timestamp;
+                                Log::info("[mostraAstaLive] Timestamp Unix per countdown: " . $timestampFineInizialePerCountdown);
+                            } catch (\Throwable $e) {
+                                Log::error("[mostraAstaLive] ECCEZIONE PARSING/USO timestamp: " . $e->getMessage() . " | File: " . $e->getFile() . " | Line: " . $e->getLine());
+                                $timestampFineInizialePerCountdown = 'ErroreCarbonEx';
+                            }
+                        } else {
+                            Log::warning("[mostraAstaLive] Asta live ID {$chiamataDaMostrareOggettoElq->id} ha timestamp_fine_tap_prevista vuoto/nullo.");
+                            $timestampFineInizialePerCountdown = '';
+                        }
+                    } elseif ($chiamataDaMostrareOggettoElq->stato_chiamata === 'in_attesa_admin') {
+                        $initialDatiAstaInAttesa_calciatoreNome = $calciatoreInAsta_nome; // Già sanificato
+                        $chiamante = User::find($chiamataDaMostrareOggettoElq->user_id_chiamante);
+                        $initialDatiAstaInAttesa_chiamanteNome = $chiamante ? $this->sanitizeForJsonResponse($chiamante->name) : 'Squadra';
+                    } elseif (in_array($chiamataDaMostrareOggettoElq->stato_chiamata, ['conclusa_tap_assegnato', 'conclusa_tap_non_assegnato', 'annullata_admin'])) {
+                        $prezzoFinaleIniziale = $chiamataDaMostrareOggettoElq->prezzo_finale_assegnazione;
+                        if ($chiamataDaMostrareOggettoElq->stato_chiamata === 'conclusa_tap_assegnato' && $chiamataDaMostrareOggettoElq->vincitore_user_id) {
+                            $vincitore = User::find($chiamataDaMostrareOggettoElq->vincitore_user_id);
+                            $vincitoreNomeIniziale = $vincitore ? $this->sanitizeForJsonResponse($vincitore->name) : null;
+                            $messaggioEsitoIniziale = "Asta conclusa: {$calciatoreInAsta_nome} assegnato a {$vincitoreNomeIniziale} per {$prezzoFinaleIniziale} crediti.";
+                        } // ... altri messaggi di esito per stati conclusi
+                    }
                 }
             }
-        } else {
-            Log::info("Modalità asta NON è TAP ('" . $impostazioniLega->modalita_asta . "'), la pagina asta.live mostrerà info per asta a voce.");
         }
         
         if ($impostazioniLega->usa_ordine_chiamata && $impostazioniLega->prossimo_turno_chiamata_user_id) {
-            $utenteProssimo = User::find($impostazioniLega->prossimo_turno_chiamata_user_id);
-            if ($utenteProssimo) {
-                $prossimoChiamanteNome = $utenteProssimo->name;
-                Log::info("Prossimo a chiamare (se ordine attivo): " . $prossimoChiamanteNome);
-            } else {
-                Log::warning("ID prossimo chiamante impostato ({$impostazioniLega->prossimo_turno_chiamata_user_id}) ma utente non trovato.");
-            }
+            $prossimoChiamanteId = $impostazioniLega->prossimo_turno_chiamata_user_id;
+            $utenteProssimo = User::find($prossimoChiamanteId);
+            $prossimoChiamanteNome = $utenteProssimo ? $this->sanitizeForJsonResponse($utenteProssimo->name) : __('Da definire');
+        } elseif($impostazioniLega->usa_ordine_chiamata) {
+            $prossimoChiamanteNome = __('Da definire');
         }
         
-        Log::info("--- Fine AstaController@mostraAstaLive. Passo alla vista: " . ($chiamataDaMostrare ? "Chiamata ID ".$chiamataDaMostrare->id : "Nessuna chiamata specifica") . " ---");
+        Log::info("--- Fine AstaController@mostraAstaLive. Passo alla vista i seguenti dati principali: " .
+            "idChiamataPolling: " . ($idChiamataInizialePerPolling ?? 'N/A') .
+            ", statoChiamata: " . $statoChiamataDaMostrare .
+            ", isAstaLive: " . ($isAstaAttualmenteLive ? 'Sì' : 'No') .
+            ", tsCountdown: '" . $timestampFineInizialePerCountdown . "'"
+            );
         
-        return view('asta.live', compact(
-            'impostazioniLega',
-            'chiamataDaMostrare',
-            'calciatoreInAsta',
-            'migliorOfferente',
-            'creditiRimanenti',
-            'prossimoChiamanteNome'
-            ));
+        return view('asta.live', [
+            'impostazioniLega' => $impostazioniLega, // PASSA L'OGGETTO INTERO
+            'creditiRimanenti' => $creditiRimanenti,
+            'prossimoChiamanteNome' => $prossimoChiamanteNome,
+            'prossimoChiamanteId' => $prossimoChiamanteId,
+            'idChiamataInizialePerPolling' => $idChiamataInizialePerPolling,
+            'isAstaAttualmenteLive' => $isAstaAttualmenteLive,
+            'timestampFineInizialePerCountdown' => $timestampFineInizialePerCountdown,
+            'statoChiamataDaMostrare' => $statoChiamataDaMostrare,
+            'calciatoreInAsta_id' => $calciatoreInAsta_id,
+            'calciatoreInAsta_nome' => $calciatoreInAsta_nome,
+            'calciatoreInAsta_ruolo' => $calciatoreInAsta_ruolo,
+            'calciatoreInAsta_squadra' => $calciatoreInAsta_squadra,
+            'prezzoPartenzaTapIniziale' => $prezzoPartenzaTapIniziale,
+            'prezzoAttualeTapIniziale' => $prezzoAttualeTapIniziale,
+            'migliorOfferente_nome' => $migliorOfferente_nome,
+            'migliorOfferenteIdIniziale' => $migliorOfferenteIdIniziale,
+            'initialDatiAstaInAttesa_calciatoreNome' => $initialDatiAstaInAttesa_calciatoreNome,
+            'initialDatiAstaInAttesa_chiamanteNome' => $initialDatiAstaInAttesa_chiamanteNome,
+            'messaggioEsitoIniziale' => $messaggioEsitoIniziale,
+            'vincitoreNomeIniziale' => $vincitoreNomeIniziale,
+            'prezzoFinaleIniziale' => $prezzoFinaleIniziale,
+        ]);
     }
 }

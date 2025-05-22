@@ -88,7 +88,7 @@ Route::get('/', function () {
                             Route::prefix('asta')->name('asta.')->group(function () {
                                 // Gestione chiamate Asta TAP (per approvazione admin)
                                 Route::get('/chiamate', [AdminController::class, 'gestioneChiamateAsta'])->name('chiamate.gestione'); // Metodo manageAuctionCalls
-                                Route::post('/avvia-tap/{chiamataAsta}', [AdminController::class, 'startTapAuction'])->name('avvia.tap'); // Metodo startTapAuction
+                                Route::post('/avvia-tap/{chiamataAsta}', [AdminController::class, 'avviaAstaTap'])->name('avvia.tap'); // Metodo startTapAuction
                                 Route::post('/annulla-chiamata/{chiamataAsta}', [AdminController::class, 'annullaChiamataTap'])->name('chiamata.annulla'); // NUOVA ROTTA, assicurati di avere il metodo cancelTapAuctionCall
                             });
         });

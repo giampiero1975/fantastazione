@@ -1,3 +1,4 @@
+{{-- File: resources/views/admin/asta/chiamate.blade.php --}}
 <x-app-layout>
     <x-slot name="header">
         <h2 class="font-semibold text-xl text-gray-800 dark:text-gray-200 leading-tight">
@@ -20,7 +21,6 @@
                 </div>
             @endif
 
-            {{-- Avviso se la modalità/configurazione non è per approvazione admin --}}
             @if(isset($impostazioniLega) && ($impostazioniLega->modalita_asta !== 'tap' || !$impostazioniLega->asta_tap_approvazione_admin))
                 <div class="mb-6 p-4 text-sm text-orange-700 bg-orange-100 dark:bg-orange-800 dark:text-orange-200 rounded-md">
                     {{ __('Attualmente la modalità asta non è "TAP con approvazione admin". Le chiamate TAP (se la modalità è TAP) partiranno automaticamente o la modalità asta è "A Voce". Questa pagina mostrerà le chiamate in attesa solo se la configurazione lo richiede.') }}
@@ -56,20 +56,34 @@
                                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{{ $chiamata->utenteChiamante->name ?? 'N/D' }}</td>
                                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{{ $chiamata->tag_lista_calciatori }}</td>
                                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{{ $chiamata->created_at->format('d/m/Y H:i') }}</td>
-                                            <td class="px-6 py-4 whitespace-nowrap">
-                                                {{-- Mostra il pulsante solo se non c'è già un'altra asta TAP live --}}
-                                                @if (isset($impostazioniLega) && $impostazioniLega->modalita_asta === 'tap' && $impostazioniLega->asta_tap_approvazione_admin && (!isset($astaTapLiveEsistente) || !$astaTapLiveEsistente))
-                                                    <form method="POST" action="{{ route('admin.asta.avvia.tap', $chiamata->id) }}">
-                                                        @csrf
-                                                        <x-primary-button type="submit" class="bg-blue-500 hover:bg-blue-600 text-xs">
-                                                            {{ __('Avvia Asta TAP') }}
-                                                        </x-primary-button>
-                                                    </form>
-                                                @elseif (isset($astaTapLiveEsistente) && $astaTapLiveEsistente)
-                                                     <span class="text-xs text-yellow-600 dark:text-yellow-400 italic">{{ __('Asta TAP già in corso') }}</span>
-                                                @else
-                                                    <span class="text-xs text-gray-400 dark:text-gray-500 italic">{{ __('Non avviabile') }}</span>
-                                                @endif
+                                            <td class="px-6 py-4 whitespace-nowrap text-sm">
+                                                <div class="flex space-x-2">
+                                                    @if (isset($impostazioniLega) && $impostazioniLega->modalita_asta === 'tap' && $impostazioniLega->asta_tap_approvazione_admin && (!isset($astaTapLiveEsistente) || !$astaTapLiveEsistente))
+                                                        <form method="POST" action="{{ route('admin.asta.avvia.tap', $chiamata->id) }}" class="inline">
+                                                            @csrf
+                                                            <x-primary-button type="submit" class="bg-blue-500 hover:bg-blue-600 text-xs">
+                                                                {{ __('Avvia Asta') }}
+                                                            </x-primary-button>
+                                                        </form>
+                                                    @elseif (isset($astaTapLiveEsistente) && $astaTapLiveEsistente)
+                                                         <span class="text-xs text-yellow-600 dark:text-yellow-400 italic py-1 px-2">{{ __('Asta TAP già in corso') }}</span>
+                                                    @else
+                                                        {{-- <span class="text-xs text-gray-400 dark:text-gray-500 italic py-1 px-2">{{ __('Non avviabile') }}</span> --}}
+                                                    @endif
+
+                                                    {{-- NUOVO PULSANTE ANNULLA CHIAMATA --}}
+                                                    @if (in_array($chiamata->stato_chiamata, ['in_attesa_admin'])) {{-- Mostra solo se è in attesa di admin --}}
+                                                        <form method="POST" action="{{ route('admin.asta.chiamata.annulla', $chiamata->id) }}" onsubmit="return confirm('Sei sicuro di voler annullare questa chiamata per {{ $chiamata->calciatore->nome_completo ?? 'questo giocatore' }}?');" class="inline">
+                                                            @csrf
+                                                            {{-- Laravel non supporta DELETE nativamente nei form HTML se non con JS o un campo _method.
+                                                                 Dato che la rotta è POST, non serve _method('DELETE') qui. Se la rotta fosse DELETE, servirebbe. --}}
+                                                            <x-danger-button type="submit" class="text-xs">
+                                                                {{ __('Annulla Chiamata') }}
+                                                            </x-danger-button>
+                                                        </form>
+                                                    @endif
+                                                    {{-- FINE NUOVO PULSANTE --}}
+                                                </div>
                                             </td>
                                         </tr>
                                     @endforeach
@@ -82,8 +96,27 @@
                 </div>
             </div>
 
-            {{-- TODO: Aggiungere qui una sezione per visualizzare l'eventuale Asta TAP Live in corso --}}
-            {{-- Se $astaTapLiveEsistente è true, potresti voler caricare qui i dettagli di quella chiamata --}}
+            {{-- TODO: Potresti voler aggiungere qui una sezione per visualizzare l'eventuale Asta TAP *Live* in corso,
+                 con un pulsante per annullarla se necessario (usando lo stesso metodo annullaChiamataTap) --}}
+             @if(isset($astaTapLiveAttiva) && $astaTapLiveAttiva) {{-- Dovrai passare $astaTapLiveAttiva dal controller --}}
+                <div class="mt-6 bg-white dark:bg-gray-800 overflow-hidden shadow-sm sm:rounded-lg">
+                    <div class="p-6 text-gray-900 dark:text-gray-100">
+                        <h3 class="text-lg font-semibold mb-2 text-orange-500">Asta TAP Attualmente Live</h3>
+                        <p>
+                            Calciatore: <strong>{{ $astaTapLiveAttiva->calciatore->nome_completo ?? 'N/D' }}</strong><br>
+                            Prezzo Attuale: <strong>{{ $astaTapLiveAttiva->prezzo_attuale_tap ?? 'N/D' }} cr.</strong><br>
+                            Miglior Offerente: <strong>{{ $astaTapLiveAttiva->migliorOfferenteTap->name ?? ( $astaTapLiveAttiva->utenteChiamante->name ?? 'N/D') }}</strong><br>
+                            Termine Previsto: {{ $astaTapLiveAttiva->timestamp_fine_tap_prevista ? \Carbon\Carbon::parse($astaTapLiveAttiva->timestamp_fine_tap_prevista)->format('H:i:s') : 'N/A' }}
+                        </p>
+                        <form method="POST" action="{{ route('admin.asta.chiamata.annulla', $astaTapLiveAttiva->id) }}" onsubmit="return confirm('Sei sicuro di voler ANNULLARE l\'asta LIVE per {{ $astaTapLiveAttiva->calciatore->nome_completo ?? 'questo giocatore' }}?');" class="mt-3">
+                            @csrf
+                            <x-danger-button type="submit">
+                                {{ __('Annulla Asta LIVE') }}
+                            </x-danger-button>
+                        </form>
+                    </div>
+                </div>
+             @endif
 
         </div>
     </div>

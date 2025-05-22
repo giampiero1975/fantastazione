@@ -172,9 +172,9 @@ class AdminController extends Controller
         ->distinct()->orderBy('tag_lista_inserimento', 'desc')->pluck('tag_lista_inserimento');
         
         $utentiPerSelezioneProssimo = User::orderBy('name')->get(['id', 'name']);
-        $squadrePerOrdinamento = User::orderBy('ordine_chiamata', 'asc')
+        $squadrePerOrdinamento = User::orderByRaw('ISNULL(ordine_chiamata), ordine_chiamata ASC') // Ordina prima i null
         ->orderBy('name', 'asc')
-        ->get(['id', 'name', 'ordine_chiamata', 'is_admin']); // Aggiunto is_admin per riferimento
+        ->get(['id', 'name', 'ordine_chiamata', 'is_admin']);
         
         return view('admin.impostazioni.index', compact(
             'impostazioni',
@@ -187,52 +187,58 @@ class AdminController extends Controller
     
     public function updateSettings(Request $request)
     {
+        Log::debug('Dati Richiesta in updateSettings:', $request->all());
+        
         $impostazioni = ImpostazioneLega::firstOrFail();
-        $faseAstaAttualeDB = $impostazioni->fase_asta_corrente;
+        $faseAttualeNelDB = $impostazioni->fase_asta_corrente;
         $tagListaAttivaDB = $impostazioni->tag_lista_attiva;
         
         $fasiPossibiliOpzioni = $this->getFasiDropdownOpzioni();
         $isResetCompletoRichiesto = $request->boolean('reset_asta_completo');
-        $isFasePreAsta = $request->input('fase_asta_corrente') === 'PRE_ASTA' || $faseAstaAttualeDB === 'PRE_ASTA'; // Considera la fase richiesta e quella attuale per i required
+        $faseAstaRichiestaDalForm = $request->input('fase_asta_corrente');
         
-        $validatedData = $request->validate([
+        // Condizione per rendere obbligatori i campi crediti/limiti:
+        // Sono obbligatori se si sta facendo un reset completo, OPPURE
+        // se la fase ATTUALE nel DB è PRE_ASTA e l'utente sta salvando mantenendo la fase PRE_ASTA nel form
+        // (cioè, sta modificando le impostazioni iniziali prima dell'inizio dell'asta).
+        $condizioneRequiredCreditiLimiti = $isResetCompletoRichiesto ||
+        ($faseAttualeNelDB === 'PRE_ASTA' && $faseAstaRichiestaDalForm === 'PRE_ASTA');
+        
+        Log::debug("[UpdateSettings Validazione] Reset richiesto: " . ($isResetCompletoRichiesto ? 'Sì' : 'No') .
+            ". Fase DB: " . $faseAttualeNelDB .
+            ". Fase Form: " . $faseAstaRichiestaDalForm .
+            ". Condizione Required Crediti/Limiti: " . ($condizioneRequiredCreditiLimiti ? 'Sì' : 'No'));
+        
+        $regoleValidazione = [
             'fase_asta_corrente' => ['required', 'string', Rule::in(array_keys($fasiPossibiliOpzioni))],
             'tag_lista_attiva' => [
-                Rule::requiredIf(fn () => in_array($request->input('fase_asta_corrente'), $this->getFasiRuoloOrdinate()) || $isResetCompletoRichiesto),
+                Rule::requiredIf(fn () => in_array($faseAstaRichiestaDalForm, $this->getFasiRuoloOrdinate()) || $isResetCompletoRichiesto),
                 'nullable', 'string', 'max:255'
             ],
             'modalita_asta' => ['required', 'string', Rule::in(['voce', 'tap'])],
             'durata_countdown_secondi' => ['required', 'integer', 'min:10', 'max:300'],
             'asta_tap_approvazione_admin' => ['required', 'boolean'],
             'usa_ordine_chiamata' => ['required', 'boolean'],
-            
-            // Modifica qui le regole per renderle condizionalmente required
             'crediti_iniziali_lega' => [
-                Rule::requiredIf(fn() => $isFasePreAsta || $isResetCompletoRichiesto),
-                'nullable', // Permetti null se non required
-                'integer', 'min:1', 'max:9999'
+                Rule::requiredIf($condizioneRequiredCreditiLimiti),
+                'nullable', 'integer', 'min:1', 'max:9999'
             ],
             'num_portieri' => [
-                Rule::requiredIf(fn() => $isFasePreAsta || $isResetCompletoRichiesto),
-                'nullable',
-                'integer', 'min:0', 'max:25'
+                Rule::requiredIf($condizioneRequiredCreditiLimiti),
+                'nullable', 'integer', 'min:0', 'max:25'
             ],
             'num_difensori' => [
-                Rule::requiredIf(fn() => $isFasePreAsta || $isResetCompletoRichiesto),
-                'nullable',
-                'integer', 'min:0', 'max:25'
+                Rule::requiredIf($condizioneRequiredCreditiLimiti),
+                'nullable', 'integer', 'min:0', 'max:25'
             ],
             'num_centrocampisti' => [
-                Rule::requiredIf(fn() => $isFasePreAsta || $isResetCompletoRichiesto),
-                'nullable',
-                'integer', 'min:0', 'max:25'
+                Rule::requiredIf($condizioneRequiredCreditiLimiti),
+                'nullable', 'integer', 'min:0', 'max:25'
             ],
             'num_attaccanti' => [
-                Rule::requiredIf(fn() => $isFasePreAsta || $isResetCompletoRichiesto),
-                'nullable',
-                'integer', 'min:0', 'max:25'
+                Rule::requiredIf($condizioneRequiredCreditiLimiti),
+                'nullable', 'integer', 'min:0', 'max:25'
             ],
-            
             'reset_asta_completo' => ['nullable', 'boolean'],
             'tipo_base_asta' => ['required', Rule::in(['quotazione_iniziale', 'credito_singolo'])],
             'ordine_squadre' => ['nullable', 'array'],
@@ -240,56 +246,51 @@ class AdminController extends Controller
             'prossimo_turno_chiamata_user_id' => ['nullable', 'exists:users,id'],
             'max_sostituzioni_stagionali' => ['required', 'integer', 'min:0', 'max:99'],
             'percentuale_crediti_svincolo_riparazione' => ['required', 'integer', 'min:0', 'max:100'],
-        ]);
+        ];
         
-        // ... il resto del metodo rimane come l'abbiamo discusso,
-        // inclusa la logica che preserva i valori dal DB se i campi sono bloccati ...
+        $validatedData = $request->validate($regoleValidazione);
         
-        $nuovaFaseAstaRichiesta = $validatedData['fase_asta_corrente'];
-        $tagListaPerOperazioni = $validatedData['tag_lista_attiva'] ?: $tagListaAttivaDB;
-        
+        $tagListaPerOperazioni = $validatedData['tag_lista_attiva'] ?? $tagListaAttivaDB;
         $datiDaAggiornare = $validatedData;
         
-        if ($faseAstaAttualeDB !== 'PRE_ASTA' && !$isResetCompletoRichiesto) {
+        if (!$condizioneRequiredCreditiLimiti && !$isResetCompletoRichiesto) { // Se non erano richiesti E non è un reset
             $campiDaPreservare = [
                 'crediti_iniziali_lega', 'num_portieri', 'num_difensori',
                 'num_centrocampisti', 'num_attaccanti'
             ];
             foreach ($campiDaPreservare as $campo) {
-                // Se il campo non è stato inviato dal form O se era disabilitato ma vogliamo comunque usare il valore del DB
-                if (!array_key_exists($campo, $validatedData) || is_null($validatedData[$campo])) {
+                if (!isset($validatedData[$campo]) || is_null($validatedData[$campo])) {
                     $datiDaAggiornare[$campo] = $impostazioni->$campo;
                 }
             }
-            Log::info("[UpdateSettings] Modifica limiti rosa e crediti iniziali controllata perché faseAsta attuale ('{$faseAstaAttualeDB}') non è PRE_ASTA e non è un reset completo.");
+            Log::info("[UpdateSettings] Valori per crediti/limiti rosa preservati dal DB.");
         }
-        // La logica di validazione del completamento del reparto va qui, usando $faseAstaAttualeDB e $nuovaFaseAstaRichiesta
-        // ...
-        if (!$isResetCompletoRichiesto && $nuovaFaseAstaRichiesta !== $faseAstaAttualeDB) {
+        
+        
+        if (!$isResetCompletoRichiesto && $faseAstaRichiestaDalForm !== $faseAttualeNelDB) {
             $fasiRuoloOrdinate = $this->getFasiRuoloOrdinate();
-            $indiceAttuale = array_search($faseAstaAttualeDB, $fasiRuoloOrdinate);
-            $indiceNuovo = array_search($nuovaFaseAstaRichiesta, $fasiRuoloOrdinate);
+            $indiceAttualeDB = array_search($faseAttualeNelDB, $fasiRuoloOrdinate);
+            $indiceNuovoForm = array_search($faseAstaRichiestaDalForm, $fasiRuoloOrdinate);
             
-            if ($faseAstaAttualeDB === 'PRE_ASTA') {
+            if ($faseAttualeNelDB === 'PRE_ASTA') {
                 $fasiPostPreAstaPermesse = ['P', 'CONCLUSA', 'SVINCOLI_STAGIONALI', 'ASTA_RIPARAZIONE'];
-                if (!in_array($nuovaFaseAstaRichiesta, $fasiPostPreAstaPermesse)) {
+                if (!in_array($faseAstaRichiestaDalForm, $fasiPostPreAstaPermesse)) {
                     return redirect()->route('admin.impostazioni.index')->withInput()
                     ->with('error', "Dalla fase PRE_ASTA puoi passare solo alla fase Portieri (P) o a fasi di mercato successive.");
                 }
-            }
-            else if ($indiceAttuale !== false) {
-                $ruoloDaAverCompletato = $fasiRuoloOrdinate[$indiceAttuale];
-                $avanzamentoLogico = ($indiceNuovo !== false && $indiceNuovo === $indiceAttuale + 1) ||
-                ($ruoloDaAverCompletato === 'A' && $nuovaFaseAstaRichiesta === 'CONCLUSA');
+            } elseif ($indiceAttualeDB !== false) { // Se la fase attuale nel DB è P, D, C, o A
+                $ruoloDaAverCompletato = $fasiRuoloOrdinate[$indiceAttualeDB];
+                $avanzamentoLogico = ($indiceNuovoForm !== false && $indiceNuovoForm === $indiceAttualeDB + 1) ||
+                ($ruoloDaAverCompletato === 'A' && $faseAstaRichiestaDalForm === 'CONCLUSA');
                 
-                if (!$avanzamentoLogico && !in_array($nuovaFaseAstaRichiesta, ['CONCLUSA', 'SVINCOLI_STAGIONALI', 'ASTA_RIPARAZIONE'])) {
+                if (!$avanzamentoLogico && !in_array($faseAstaRichiestaDalForm, ['CONCLUSA', 'SVINCOLI_STAGIONALI', 'ASTA_RIPARAZIONE'])) {
                     return redirect()->route('admin.impostazioni.index')->withInput()
-                    ->with('error', "Cambio fase non consentito. Da una fase d'asta per ruolo ({$faseAstaAttualeDB}) puoi avanzare al ruolo successivo, a CONCLUSA (da A), o a SVINCOLI STAGIONALI/ASTA_RIPARAZIONE.");
+                    ->with('error', "Cambio fase non consentito. Da una fase d'asta per ruolo ({$faseAttualeNelDB}) puoi avanzare al ruolo successivo, a CONCLUSA (da A), o a SVINCOLI STAGIONALI/ASTA_RIPARAZIONE.");
                 }
                 
                 if ($avanzamentoLogico) {
                     $limiteRuolo = match ($ruoloDaAverCompletato) {
-                        'P' => $datiDaAggiornare['num_portieri'], // Usa i valori che verranno salvati
+                        'P' => $datiDaAggiornare['num_portieri'],
                         'D' => $datiDaAggiornare['num_difensori'],
                         'C' => $datiDaAggiornare['num_centrocampisti'],
                         'A' => $datiDaAggiornare['num_attaccanti'],
@@ -313,7 +314,7 @@ class AdminController extends Controller
                                 }
                         }
                         if (!empty($squadreIncomplete)) {
-                            $messaggioErrore = "Impossibile avanzare alla fase {$this->getNomeFaseCompleto($nuovaFaseAstaRichiesta)}. Le seguenti squadre non hanno completato il reparto {$this->getNomeFaseCompleto($ruoloDaAverCompletato)} (per il tag '{$tagListaPerOperazioni}'): " . implode('; ', $squadreIncomplete);
+                            $messaggioErrore = "Impossibile avanzare alla fase {$this->getNomeFaseCompleto($faseAstaRichiestaDalForm)}. Le seguenti squadre non hanno completato il reparto {$this->getNomeFaseCompleto($ruoloDaAverCompletato)} (per il tag '{$tagListaPerOperazioni}'): " . implode('; ', $squadreIncomplete);
                             return redirect()->route('admin.impostazioni.index')->withInput()->with('error', $messaggioErrore);
                         }
                     }
@@ -321,12 +322,7 @@ class AdminController extends Controller
             }
         }
         
-        // ... resto del codice per DB::beginTransaction(), commit, ecc. come prima,
-        // assicurandosi di usare $datiDaAggiornare e $isResetCompletoRichiesto
-        // e $tagListaPerOperazioni dove necessario
-        // ...
         $messaggioSuccesso = 'Impostazioni aggiornate con successo.';
-        
         DB::beginTransaction();
         try {
             if ($request->has('ordine_squadre')) {
@@ -341,21 +337,12 @@ class AdminController extends Controller
                 $impostazioni->refresh();
             }
             
-            $datiFinaliPerUpdate = [];
-            $campiConsentitiPerUpdate = [
-                'fase_asta_corrente', 'tag_lista_attiva', 'modalita_asta', 'durata_countdown_secondi',
-                'asta_tap_approvazione_admin', 'usa_ordine_chiamata', 'crediti_iniziali_lega',
-                'num_portieri', 'num_difensori', 'num_centrocampisti', 'num_attaccanti',
-                'tipo_base_asta', 'prossimo_turno_chiamata_user_id',
-                'max_sostituzioni_stagionali', 'percentuale_crediti_svincolo_riparazione'
-            ];
-            
-            foreach ($campiConsentitiPerUpdate as $chiave) {
-                if (array_key_exists($chiave, $datiDaAggiornare)) {
-                    $datiFinaliPerUpdate[$chiave] = $datiDaAggiornare[$chiave];
+            // Applica i dati all'oggetto $impostazioni per usarlo con avanzaTurnoChiamata
+            foreach ($datiDaAggiornare as $key => $value) {
+                if (in_array($key, $impostazioni->getFillable())) {
+                    $impostazioni->$key = $value;
                 }
             }
-            
             
             if ($isResetCompletoRichiesto) {
                 if (empty($tagListaPerOperazioni)) {
@@ -363,60 +350,89 @@ class AdminController extends Controller
                     return redirect()->route('admin.impostazioni.index')->withInput()
                     ->withErrors(['tag_lista_attiva' => 'Per il reset completo, è obbligatorio selezionare un "Tag Lista Calciatori Attiva".']);
                 }
-                if (!in_array($datiFinaliPerUpdate['fase_asta_corrente'], ['PRE_ASTA', 'P'])) {
-                    $datiFinaliPerUpdate['fase_asta_corrente'] = 'P';
+                if (!in_array($impostazioni->fase_asta_corrente, ['PRE_ASTA', 'P'])) {
+                    $impostazioni->fase_asta_corrente = 'P';
+                    $datiDaAggiornare['fase_asta_corrente'] = 'P'; // Assicurati che anche l'array per l'update finale sia corretto
                 }
                 
-                $crediti = $datiFinaliPerUpdate['crediti_iniziali_lega'];
+                if (!empty($tagListaPerOperazioni)) { // Assicurati che il tag sia definito
+                    // 1. Annulla le chiamate che erano 'in_attesa_admin' o 'in_asta_tap_live' per il tag specificato
+                    $chiamateDaAnnullare = ChiamataAsta::where('tag_lista_calciatori', $tagListaPerOperazioni)
+                    ->whereIn('stato_chiamata', ['in_attesa_admin', 'in_asta_tap_live']);
+                    
+                    if ($chiamateDaAnnullare->count() > 0) {
+                        $chiamateDaAnnullare->update(['stato_chiamata' => 'annullata_admin', 'timestamp_fine_tap_prevista' => null]);
+                        Log::info("[ResetAsta] Chiamate asta 'in_attesa_admin' o 'in_asta_tap_live' aggiornate ad 'annullata_admin' per tag: {$tagListaPerOperazioni}. Numero: " . $chiamateDaAnnullare->count());
+                    } else {
+                        Log::info("[ResetAsta] Nessuna chiamata asta 'in_attesa_admin' o 'in_asta_tap_live' da annullare per tag: {$tagListaPerOperazioni}");
+                    }
+                    
+                    // 2. OPZIONALE: Cancella TUTTE le chiamate (incluse quelle già concluse o appena annullate) per il tag specificato
+                    // Se vuoi una pulizia completa dello storico per quel tag.
+                    // Se commenti questa parte, manterrai lo storico delle chiamate con stato 'annullata_admin', 'conclusa_tap_assegnato', ecc.
+                    $chiamateDaCancellare = ChiamataAsta::where('tag_lista_calciatori', $tagListaPerOperazioni);
+                    $numCancellate = $chiamateDaCancellare->delete(); // delete() restituisce il numero di record cancellati
+                    if ($numCancellate > 0) {
+                        Log::info("[ResetAsta] CANCELLATE {$numCancellate} chiamate asta (di qualsiasi stato) per tag: {$tagListaPerOperazioni}");
+                    } else {
+                        Log::info("[ResetAsta] Nessuna chiamata asta da cancellare per tag: {$tagListaPerOperazioni}");
+                    }
+                } else {
+                    Log::warning("[ResetAsta] Impossibile pulire 'chiamate_asta' perché tagListaPerOperazioni non è definito.");
+                }
+                
+                $crediti = $datiDaAggiornare['crediti_iniziali_lega'];
                 User::query()->update([
                     'crediti_iniziali_squadra' => $crediti,
                     'crediti_rimanenti' => $crediti,
                     'sostituzioni_stagionali_usate' => 0
                 ]);
-                
                 GiocatoreAcquistato::whereHas('calciatore', function ($query) use ($tagListaPerOperazioni) {
                     $query->where('tag_lista_inserimento', $tagListaPerOperazioni);
                 })->delete();
-                
                 ChiamataAsta::whereIn('stato_chiamata', ['in_attesa_admin', 'in_asta_tap_live'])
                 ->where('tag_lista_calciatori', $tagListaPerOperazioni)
                 ->update(['stato_chiamata' => 'annullata_admin', 'timestamp_fine_tap_prevista' => null]);
                 
-                $impostazioni->fill($datiFinaliPerUpdate);
                 if ($impostazioni->usa_ordine_chiamata) {
                     $impostazioni->avanzaTurnoChiamata(null);
-                    $datiFinaliPerUpdate['prossimo_turno_chiamata_user_id'] = $impostazioni->prossimo_turno_chiamata_user_id;
+                    // Il valore in $impostazioni->prossimo_turno_chiamata_user_id è già aggiornato
                 } else {
-                    $datiFinaliPerUpdate['prossimo_turno_chiamata_user_id'] = null;
+                    $impostazioni->prossimo_turno_chiamata_user_id = null;
                 }
-                $messaggioSuccesso = 'ASTA RESETTATA (per il tag '.$tagListaPerOperazioni.'): Crediti, rose, sostituzioni usate azzerate. Chiamate TAP annullate. Fase: ' . $this->getNomeFaseCompleto($datiFinaliPerUpdate['fase_asta_corrente']) . '.';
+                $datiDaAggiornare['prossimo_turno_chiamata_user_id'] = $impostazioni->prossimo_turno_chiamata_user_id; // Aggiorna l'array per l'update
+                $messaggioSuccesso = 'ASTA RESETTATA (per il tag '.$tagListaPerOperazioni.'): Crediti, rose, sostituzioni usate azzerate. Chiamate TAP annullate. Fase: ' . $this->getNomeFaseCompleto($impostazioni->fase_asta_corrente) . '.';
                 Log::info("RESET ASTA ESEGUITO: " . $messaggioSuccesso);
-            } else {
-                $impostazioni->fill($datiFinaliPerUpdate);
                 
-                if ($datiFinaliPerUpdate['usa_ordine_chiamata']) {
-                    $prossimoTurnoDalForm = $validatedData['prossimo_turno_chiamata_user_id'] ?? null;
-                    if (($impostazioni->wasChanged('usa_ordine_chiamata') && $datiFinaliPerUpdate['usa_ordine_chiamata']) ||
-                        ($faseAstaAttualeDB !== $nuovaFaseAstaRichiesta && $datiFinaliPerUpdate['usa_ordine_chiamata']) ||
-                        (is_null($impostazioni->getOriginal('prossimo_turno_chiamata_user_id')) && $datiFinaliPerUpdate['usa_ordine_chiamata']) ||
-                        ($prossimoTurnoDalForm && $prossimoTurnoDalForm != $impostazioni->getOriginal('prossimo_turno_chiamata_user_id'))
+            } else { // NON è un reset completo
+                if ($impostazioni->usa_ordine_chiamata) {
+                    $prossimoTurnoDalForm = $datiDaAggiornare['prossimo_turno_chiamata_user_id'] ?? null; // Usa il valore da $datiDaAggiornare
+                    $prossimoTurnoOriginaleDB = $impostazioni->getOriginal('prossimo_turno_chiamata_user_id');
+                    $usaOrdineChiamataOriginaleDB = $impostazioni->getOriginal('usa_ordine_chiamata');
+                    
+                    if (($usaOrdineChiamataOriginaleDB == false && $impostazioni->usa_ordine_chiamata == true) || // Appena attivato
+                        ($faseAttualeNelDB !== $faseAstaRichiestaDalForm && $impostazioni->usa_ordine_chiamata) ||      // Fase cambiata con ordine attivo
+                        (is_null($prossimoTurnoOriginaleDB) && $impostazioni->usa_ordine_chiamata) ||                  // Era attivo ma nessun prossimo impostato
+                        ($prossimoTurnoDalForm && $prossimoTurnoDalForm != $prossimoTurnoOriginaleDB)                  // Admin ha forzato un cambio
                         ) {
-                            if ($prossimoTurnoDalForm && $prossimoTurnoDalForm != $impostazioni->getOriginal('prossimo_turno_chiamata_user_id')) {
-                                // $datiFinaliPerUpdate['prossimo_turno_chiamata_user_id'] è già settato da $validatedData
-                                Log::info("Ordine chiamata: prossimo turno FORZATO dall'admin a ID: " . $datiFinaliPerUpdate['prossimo_turno_chiamata_user_id']);
+                            if ($prossimoTurnoDalForm && $prossimoTurnoDalForm != $prossimoTurnoOriginaleDB) {
+                                // L'admin ha forzato, $datiDaAggiornare['prossimo_turno_chiamata_user_id'] è già corretto
+                                Log::info("[UpdateSettings Ordine] Prossimo turno FORZATO dall'admin a ID: " . $datiDaAggiornare['prossimo_turno_chiamata_user_id']);
                             } else {
-                                $impostazioni->avanzaTurnoChiamata(null);
-                                $datiFinaliPerUpdate['prossimo_turno_chiamata_user_id'] = $impostazioni->prossimo_turno_chiamata_user_id;
-                                Log::info("Ordine chiamata: prossimo turno ricalcolato/inizializzato. Prossimo chiamante ID: " . ($datiFinaliPerUpdate['prossimo_turno_chiamata_user_id'] ?? 'Nessuno'));
+                                $impostazioni->avanzaTurnoChiamata(null); // Ricalcola/inizializza
+                                $datiDaAggiornare['prossimo_turno_chiamata_user_id'] = $impostazioni->prossimo_turno_chiamata_user_id;
+                                Log::info("[UpdateSettings Ordine] Prossimo turno ricalcolato/inizializzato. ID: " . ($datiDaAggiornare['prossimo_turno_chiamata_user_id'] ?? 'Nessuno'));
                             }
-                        } else if ($datiFinaliPerUpdate['usa_ordine_chiamata']){
-                            $datiFinaliPerUpdate['prossimo_turno_chiamata_user_id'] = $validatedData['prossimo_turno_chiamata_user_id'];
-                        }
-                } else {
-                    $datiFinaliPerUpdate['prossimo_turno_chiamata_user_id'] = null;
-                    Log::info("Ordine chiamata disattivato. Prossimo chiamante resettato a null.");
+                        } // Altrimenti, se l'ordine era attivo, non è cambiato, e non forzato, $datiDaAggiornare['prossimo_turno_chiamata_user_id'] è già quello corretto dal form.
+                } else { // usa_ordine_chiamata è false
+                    $datiDaAggiornare['prossimo_turno_chiamata_user_id'] = null;
+                    Log::info("[UpdateSettings Ordine] Ordine chiamata disattivato. Prossimo resettato a null.");
                 }
             }
+            
+            // Assicurati che tutti i campi in $datiDaAggiornare siano fillable nel modello ImpostazioneLega
+            $campiFillable = $impostazioni->getFillable();
+            $datiFinaliPerUpdate = array_intersect_key($datiDaAggiornare, array_flip($campiFillable));
             
             $impostazioni->update($datiFinaliPerUpdate);
             
@@ -425,7 +441,7 @@ class AdminController extends Controller
             
         } catch (Exception $e) {
             DB::rollBack();
-            Log::error("Errore aggiornamento impostazioni o ordine squadre: " . $e->getMessage(), ['exception' => $e]);
+            Log::error("Errore aggiornamento impostazioni o ordine squadre: " . $e->getMessage(). " Trace: ".$e->getTraceAsString());
             return redirect()->route('admin.impostazioni.index')->withInput()->with('error', 'Errore durante il salvataggio: ' . $e->getMessage());
         }
     }
@@ -806,30 +822,22 @@ class AdminController extends Controller
     public function avviaAstaTap(Request $request, ChiamataAsta $chiamataAsta)
     {
         $impostazioniLega = ImpostazioneLega::firstOrFail();
-        $calciatorePerAsta = $chiamataAsta->calciatore()->first(); // Carica il calciatore associato alla chiamata
+        $calciatorePerAsta = $chiamataAsta->calciatore()->first();
         
-        // Validazione preliminare: il calciatore deve esistere
         if (!$calciatorePerAsta) {
             Log::error("[Admin Avvio Asta TAP] Calciatore non trovato per Chiamata ID: {$chiamataAsta->id}");
             return redirect()->route('admin.asta.chiamate.gestione')->with('error', 'Errore: Calciatore non trovato per questa chiamata.');
         }
         
-        Log::info("--- Admin Avvio Asta TAP (AdminRosterController) per Chiamata ID: {$chiamataAsta->id} ---");
+        Log::info("--- Admin Avvio Asta TAP (AdminController) per Chiamata ID: {$chiamataAsta->id} ---"); // Modificato da AdminRosterController
         Log::info("[Admin Avvio] Calciatore: " . $calciatorePerAsta->nome_completo . " (ID: {$calciatorePerAsta->id}), Quotazione Iniziale: " . $calciatorePerAsta->quotazione_iniziale);
         Log::info("[Admin Avvio] Impostazione Lega 'tipo_base_asta': " . $impostazioniLega->tipo_base_asta);
         Log::info("[Admin Avvio] Impostazione Lega 'asta_tap_approvazione_admin': " . ($impostazioniLega->asta_tap_approvazione_admin ? 'true' : 'false'));
         
-        
-        // 1. VALIDAZIONI GENERALI SULL'ASTA E SULLE IMPOSTAZIONI
+        // 1. VALIDAZIONI GENERALI SULL'ASTA E SULLE IMPOSTAZIONI (come prima)
         if ($impostazioniLega->modalita_asta !== 'tap') {
             Log::warning("[Admin Avvio Asta TAP] Tentativo di avvio asta TAP (ID: {$chiamataAsta->id}) ma la modalità non è TAP. Modalità attuale: {$impostazioniLega->modalita_asta}");
             return redirect()->route('admin.asta.chiamate.gestione')->with('error', 'La modalità asta TAP non è attiva.');
-        }
-        
-        // Anche se l'admin avvia, ha senso che l'approvazione sia comunque richiesta se il flag è true.
-        // Se il flag è false, questa rotta non dovrebbe essere usata per avvii automatici, ma solo per interventi admin.
-        if (!$impostazioniLega->asta_tap_approvazione_admin) {
-            Log::info("[Admin Avvio Asta TAP] Avvio forzato da admin per chiamata ID {$chiamataAsta->id} anche se approvazione non sarebbe richiesta.");
         }
         
         if ($chiamataAsta->stato_chiamata !== 'in_attesa_admin') {
@@ -837,9 +845,13 @@ class AdminController extends Controller
             return redirect()->route('admin.asta.chiamate.gestione')->with('error', "Questa chiamata per {$calciatorePerAsta->nome_completo} non è più in attesa di approvazione (Stato: {$chiamataAsta->stato_chiamata}).");
         }
         
-        if (ChiamataAsta::where('stato_chiamata', 'in_asta_tap_live')->where('id', '!=', $chiamataAsta->id)->exists()) {
-            Log->warning("[Admin Avvio Asta TAP] Tentativo di avvio per chiamata ID {$chiamataAsta->id} ma esiste già un'altra asta TAP live.");
-            return redirect()->route('admin.asta.chiamate.gestione')->with('error', 'Esiste già un\'altra asta TAP in corso. Annullala o attendi la sua conclusione.');
+        $queryAstaLiveEsistente = ChiamataAsta::where('stato_chiamata', 'in_asta_tap_live')->where('id', '!=', $chiamataAsta->id);
+        if($impostazioniLega->tag_lista_attiva){
+            $queryAstaLiveEsistente->where('tag_lista_calciatori', $impostazioniLega->tag_lista_attiva);
+        }
+        if ($queryAstaLiveEsistente->exists()) {
+            Log::warning("[Admin Avvio Asta TAP] Tentativo di avvio per chiamata ID {$chiamataAsta->id} ma esiste già un'altra asta TAP live per il tag '{$impostazioniLega->tag_lista_attiva}'.");
+            return redirect()->route('admin.asta.chiamate.gestione')->with('error', 'Esiste già un\'altra asta TAP in corso per questa lista. Annullala o attendi la sua conclusione.');
         }
         
         if ($calciatorePerAsta->ruolo !== $impostazioniLega->fase_asta_corrente) {
@@ -847,31 +859,26 @@ class AdminController extends Controller
             return redirect()->route('admin.asta.chiamate.gestione')->with('error', "Il ruolo del giocatore ({$calciatorePerAsta->ruolo}) non corrisponde alla fase d'asta attuale ({$impostazioniLega->fase_asta_corrente}).");
         }
         
-        
-        // 2. CALCOLO BASE D'ASTA CORRETTA
+        // 2. CALCOLO BASE D'ASTA CORRETTA (come prima)
         $quotazioneEffettivaCalciatore = ($calciatorePerAsta->quotazione_iniziale > 0 ? $calciatorePerAsta->quotazione_iniziale : 1);
         $baseAstaDaUsare = ($impostazioniLega->tipo_base_asta === 'credito_singolo') ? 1 : $quotazioneEffettivaCalciatore;
-        
         Log::info("[Admin Avvio] Base Asta CALCOLATA da usare per {$calciatorePerAsta->nome_completo}: " . $baseAstaDaUsare);
-        Log::info("[Admin Avvio] ChiamataAsta esistente 'prezzo_partenza_tap' (prima dell'update pianificato): " . $chiamataAsta->prezzo_partenza_tap);
         
-        
-        // 3. VALIDAZIONI SULL'UTENTE CHIAMANTE ORIGINALE
+        // 3. VALIDAZIONI SULL'UTENTE CHIAMANTE ORIGINALE (come prima)
         $utenteChiamante = $chiamataAsta->utenteChiamante()->first();
-        
         if (!$utenteChiamante) {
+            // ... (gestione errore come prima)
             Log::error("[Admin Avvio Asta TAP] Utente chiamante non trovato per Chiamata ID {$chiamataAsta->id}. Annullamento chiamata.");
             $chiamataAsta->update(['stato_chiamata' => 'annullata_admin', 'timestamp_fine_tap_prevista' => null]);
             return redirect()->route('admin.asta.chiamate.gestione')->with('error', "Utente chiamante originale non trovato. La chiamata per {$calciatorePerAsta->nome_completo} è stata annullata.");
         }
-        
         if ($utenteChiamante->crediti_rimanenti < $baseAstaDaUsare) {
+            // ... (gestione errore come prima)
             Log::warning("[Admin Avvio Asta TAP] Utente chiamante {$utenteChiamante->name} (ID: {$utenteChiamante->id}) non ha crediti sufficienti (Rimanenti: {$utenteChiamante->crediti_rimanenti}) per base asta {$baseAstaDaUsare} per {$calciatorePerAsta->nome_completo}. Chiamata ID {$chiamataAsta->id} annullata.");
             $chiamataAsta->update(['stato_chiamata' => 'annullata_admin', 'timestamp_fine_tap_prevista' => null]);
             return redirect()->route('admin.asta.chiamate.gestione')->with('error', "L'utente {$utenteChiamante->name} non ha crediti sufficienti ({$utenteChiamante->crediti_rimanenti}) per la base d'asta di {$baseAstaDaUsare} per {$calciatorePerAsta->nome_completo}. La chiamata è stata annullata.");
         }
-        
-        // Validazione limiti rosa per l'utente chiamante
+        // ... (validazione limiti rosa chiamante come prima) ...
         $ruoloCalciatoreDaAvviare = $calciatorePerAsta->ruolo;
         $limitePerRuolo = 0;
         switch ($ruoloCalciatoreDaAvviare) {
@@ -907,30 +914,51 @@ class AdminController extends Controller
             DB::beginTransaction();
             $chiamataAsta->update([
                 'stato_chiamata' => 'in_asta_tap_live',
-                'prezzo_partenza_tap' => $baseAstaDaUsare,      // Usa la base calcolata correttamente
-                'prezzo_attuale_tap' => $baseAstaDaUsare,        // Usa la base calcolata correttamente
-                'miglior_offerente_tap_id' => $chiamataAsta->user_id_chiamante, // Il chiamante originale fa l'offerta base
+                'prezzo_partenza_tap' => $baseAstaDaUsare,
+                'prezzo_attuale_tap' => $baseAstaDaUsare,
+                'miglior_offerente_tap_id' => $chiamataAsta->user_id_chiamante,
                 'timestamp_fine_tap_prevista' => Carbon::now()->addSeconds($impostazioniLega->durata_countdown_secondi),
             ]);
             DB::commit();
             
             Log::info("Admin (ID: ".Auth::id().") ha avviato Asta TAP per {$calciatorePerAsta->nome_completo} (Chiamata ID: {$chiamataAsta->id}). Prezzo Partenza IMPOSTATO: {$baseAstaDaUsare}. Fine: {$chiamataAsta->timestamp_fine_tap_prevista}");
             
-            // TODO: ORDINE CHIAMATA - Se l'ordine di chiamata è attivo, avanza il turno
-            // if ($impostazioniLega->usa_ordine_chiamata) {
-            //     // Assumendo che tu abbia un metodo per avanzare il turno sull'oggetto $impostazioniLega
-            //     // o un service dedicato. Bisogna passare l'ID dell'utente che ha "usato" il turno.
-            //     // $impostazioniLega->avanzaTurnoChiamata($chiamataAsta->user_id_chiamante);
-            //     Log::info("[Admin Avvio Asta TAP] Ordine chiamata attivo. Tentativo avanzamento turno per utente ID: {$chiamataAsta->user_id_chiamante}");
-            // }
+            // Avanzamento turno se l'ordine di chiamata è attivo (questa logica è già presente in ImpostazioneLega@avanzaTurnoChiamata,
+            // che viene chiamata DOPO la finalizzazione dell'asta. Qui l'asta è appena INIZIATA, il turno del chiamante è "in uso").
+            // Non è necessario avanzare il turno qui; verrà avanzato alla conclusione dell'asta.
             
-            return redirect()->route('admin.asta.chiamate.gestione')->with('success', "Asta TAP per {$calciatorePerAsta->nome_completo} avviata! Base: {$baseAstaDaUsare}.");
+            // === MODIFICA REDIRECT ===
+            $messaggioSuccesso = "Asta TAP per {$this->sanitizeForJsonResponse($calciatorePerAsta->nome_completo)} avviata! Base: {$baseAstaDaUsare}.";
+            // Aggiungi un link per tornare alla gestione chiamate nel messaggio flash, usando HTML
+            // Nota: per usare HTML nel messaggio flash, la vista deve stamparlo con {!! !!} invece di {{ }}
+            // Ma per sicurezza e semplicità, lo mettiamo come testo separato.
+            // In alternativa, crea un messaggio flash con più dati:
+            // session()->flash('status_con_link', [
+            //     'message' => $messaggioSuccesso,
+            //     'link_text' => 'Torna a Gestione Chiamate',
+            //     'link_url' => route('admin.asta.chiamate.gestione')
+            // ]);
+            // e gestiscilo nella vista.
+            
+            // Per ora, reindirizziamo direttamente a asta.live
+            return redirect()->route('asta.live')->with('success', $messaggioSuccesso);
+            // Se preferisci dare la scelta all'admin:
+            // return redirect()->route('admin.asta.chiamate.gestione')
+            //                ->with('success', $messaggioSuccesso . ' Visualizza l\'asta live o continua a gestire le chiamate.');
+            
             
         } catch (Exception $e) {
             DB::rollBack();
             Log::error("Errore durante l'avvio dell'asta TAP da parte dell'admin per Chiamata ID {$chiamataAsta->id}: " . $e->getMessage() . " in " . $e->getFile() . ":" . $e->getLine());
-            return redirect()->route('admin.asta.chiamate.gestione')->with('error', 'Errore tecnico durante l\'avvio dell\'asta TAP: ' . $e->getMessage());
+            return redirect()->route('admin.asta.chiamate.gestione')->with('error', 'Errore tecnico durante l\'avvio dell\'asta TAP: ' . $this->sanitizeForJsonResponse($e->getMessage()));
         }
+    }
+    
+    private function sanitizeForJsonResponse($string)
+    {
+        if ($string === null) return null;
+        $string = (string)$string;
+        return mb_convert_encoding($string, 'UTF-8', 'UTF-8');
     }
     
     public function annullaChiamataTap(Request $request, ChiamataAsta $chiamataAsta)

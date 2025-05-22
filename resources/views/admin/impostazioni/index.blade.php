@@ -134,10 +134,10 @@
                                     <div class="mt-4">
                                         <x-input-label for="crediti_iniziali_lega" :value="__('Crediti Iniziali per Squadra')" />
                                         <x-text-input id="crediti_iniziali_lega" class="block mt-1 w-full" type="number"
-                                                      name="crediti_iniziali_lega"
-                                                      :value="old('crediti_iniziali_lega', $impostazioni->crediti_iniziali_lega ?? 500)"
-                                                      required min="1"
-                                                      ::disabled="!isPreAsta() && !resetCompleto" />
+                                        name="crediti_iniziali_lega"
+                                        :value="old('crediti_iniziali_lega', $impostazioni->crediti_iniziali_lega ?? 500)"
+                                        required min="1"
+                                        ::disabled="!isPreAsta() && !resetCompleto" />
                                         <p x-show="!isPreAsta() && !resetCompleto" class="mt-1 text-xs text-orange-500 dark:text-orange-400">Modificabile solo in PRE_ASTA o con Reset Completo.</p>
                                         <x-input-error :messages="$errors->get('crediti_iniziali_lega')" class="mt-2" />
                                     </div>
