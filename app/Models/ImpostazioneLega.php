@@ -4,7 +4,10 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
+use App\Models\User;
+use App\Models\GiocatoreAcquistato;
 
 class ImpostazioneLega extends Model
 {
@@ -24,107 +27,164 @@ class ImpostazioneLega extends Model
         'modalita_asta',
         'durata_countdown_secondi',
         'asta_tap_approvazione_admin',
-        'usa_ordine_chiamata',
+        'usa_ordine_chiamata', // Boolean
         'tipo_base_asta',
         'max_sostituzioni_stagionali',
         'percentuale_crediti_svincolo_riparazione',
+        'ordine_squadre_personalizzato' // Array (JSON nel DB)
     ];
     
-    protected function casts(): array
-    {
-        return [
-            'crediti_iniziali_lega' => 'integer',
-            'num_portieri' => 'integer',
-            'num_difensori' => 'integer',
-            'num_centrocampisti' => 'integer',
-            'num_attaccanti' => 'integer',
-            'durata_countdown_secondi' => 'integer',
-            'asta_tap_approvazione_admin' => 'boolean',
-            'usa_ordine_chiamata' => 'boolean',
-            'max_sostituzioni_stagionali' => 'integer',
-            'percentuale_crediti_svincolo_riparazione' => 'integer',
-        ];
-    }
-    
-    public function calciatoreAttuale()
-    {
-        return $this->belongsTo(Calciatore::class, 'calciatore_attuale_in_asta_id');
-    }
+    // Casts per Laravel 9
+    protected $casts = [
+        'crediti_iniziali_lega' => 'integer',
+        'num_portieri' => 'integer',
+        'num_difensori' => 'integer',
+        'num_centrocampisti' => 'integer',
+        'num_attaccanti' => 'integer',
+        'durata_countdown_secondi' => 'integer',
+        'asta_tap_approvazione_admin' => 'boolean',
+        'usa_ordine_chiamata' => 'boolean',
+        'max_sostituzioni_stagionali' => 'integer',
+        'percentuale_crediti_svincolo_riparazione' => 'integer',
+        'ordine_squadre_personalizzato' => 'array',
+    ];
     
     public function prossimoUtenteTurno()
     {
         return $this->belongsTo(User::class, 'prossimo_turno_chiamata_user_id');
     }
     
-    /**
-     * Avanza il turno di chiamata all'utente successivo secondo l'ordine definito.
-     * Se $userIdChiamanteAttuale è null, imposta il primo utente dell'ordine.
-     *
-     * @param int|null $userIdChiamanteAttuale L'ID dell'utente che ha appena chiamato (o null per iniziare).
-     * @return void
-     */
+    public function utentePuoChiamare(User $utente): bool
+    {
+        $authUserId = Auth::id(); // Per debug APP_KEY/Sessione
+        Log::debug(
+            "[utentePuoChiamare V8] INIZIO - Controllo per Utente: {$utente->name} (ID: {$utente->id}). " .
+            "Auth::id(): " . ($authUserId ?? "NULL (Problema APP_KEY/Sessione?)") .
+            ". Fase asta: {$this->fase_asta_corrente}. Tag lista: {$this->tag_lista_attiva}"
+        );
+        
+        if (!in_array($this->fase_asta_corrente, ['P', 'D', 'C', 'A'])) {
+            Log::debug("[utentePuoChiamare V8] Fase '{$this->fase_asta_corrente}' non di ruolo specifico. Può chiamare = true.");
+            return true;
+        }
+        
+        $limitePerRuolo = match ($this->fase_asta_corrente) {
+            'P' => (int) $this->num_portieri,
+            'D' => (int) $this->num_difensori,
+            'C' => (int) $this->num_centrocampisti,
+            'A' => (int) $this->num_attaccanti,
+            default => 0,
+        };
+        Log::debug("[utentePuoChiamare V8] Limite per ruolo {$this->fase_asta_corrente}: {$limitePerRuolo}");
+        
+        if ($limitePerRuolo <= 0) {
+            Log::debug("[utentePuoChiamare V8] Limite ruolo non positivo (o 0). Può chiamare = true.");
+            return true;
+        }
+        
+        $tagListaPerConteggio = $this->tag_lista_attiva;
+        if (empty($tagListaPerConteggio)) {
+            Log::warning("[utentePuoChiamare V8] tag_lista_attiva VUOTO o NULL. Il conteggio giocatori per ruolo potrebbe essere impreciso!");
+        }
+        
+        $queryGiocatori = GiocatoreAcquistato::where('user_id', $utente->id)
+        ->whereHas('calciatore', function($query) use ($tagListaPerConteggio) {
+            $query->where('ruolo', $this->fase_asta_corrente);
+            if (!empty($tagListaPerConteggio)) {
+                $query->where('tag_lista_inserimento', $tagListaPerConteggio);
+            }
+        });
+            
+            $giocatoriAttualiNelRuolo = $queryGiocatori->count();
+            $puoChiamare = $giocatoriAttualiNelRuolo < $limitePerRuolo;
+            
+            Log::info("[utentePuoChiamare ESITO V8] Utente: {$utente->name} (ID: {$utente->id}), Fase: {$this->fase_asta_corrente}, Attuali: {$giocatoriAttualiNelRuolo}, Limite: {$limitePerRuolo}. Può chiamare: " . ($puoChiamare ? 'Sì' : 'No'));
+            return $puoChiamare;
+    }
+    
     public function avanzaTurnoChiamata(?int $userIdChiamanteCheHaCompletatoIlTurno = null): void
     {
-        if (!$this->usa_ordine_chiamata) {
-            // Se l'ordine di chiamata non è attivo, non fare nulla o assicurati che prossimo_turno_chiamata_user_id sia null
-            if ($this->prossimo_turno_chiamata_user_id !== null) {
-                $this->prossimo_turno_chiamata_user_id = null;
-                $this->save();
-                Log::info("[AvanzaTurno] Ordine chiamata disattivato. Prossimo turno resettato a null.");
-            }
-            return;
-        }
+        $valoreOriginaleProssimoTurno = $this->prossimo_turno_chiamata_user_id;
+        // Assicura che usa_ordine_chiamata sia interpretato come booleano
+        $isOrdineAttivo = filter_var($this->usa_ordine_chiamata, FILTER_VALIDATE_BOOLEAN);
         
-        // Recupera tutti gli utenti NON admin che hanno un ordine_chiamata definito,
-        // ordinati per il loro ordine di chiamata e poi per ID come fallback.
-        $utentiOrdinati = User::where('is_admin', false)
-        ->whereNotNull('ordine_chiamata')
-        ->orderBy('ordine_chiamata', 'asc')
-        ->orderBy('id', 'asc') // Fallback per parità di ordine_chiamata
-        ->pluck('id')
-        ->toArray();
+        Log::info(
+            "[AvanzaTurno V8 INIZIO] usa_ordine_chiamata (valore grezzo DB: '{$this->getOriginal('usa_ordine_chiamata')}', castato: " . ($isOrdineAttivo ? 'Attivo' : 'Disattivato') . ")" .
+            ". Fase asta: {$this->fase_asta_corrente}. ID chiamante completato: " . ($userIdChiamanteCheHaCompletatoIlTurno ?? 'N/A') .
+            ". Prossimo turno attuale (originale in oggetto): " . ($valoreOriginaleProssimoTurno ?? 'null')
+        );
         
-        if (empty($utentiOrdinati)) {
+        if (!$isOrdineAttivo) {
+            Log::info("[AvanzaTurno V8] ORDINE CHIAMATA È DISATTIVATO. Imposto prossimo_turno_chiamata_user_id a null.");
             $this->prossimo_turno_chiamata_user_id = null;
-            $this->save();
-            Log::warning("[AvanzaTurno] Nessun utente partecipante (non admin) con 'ordine_chiamata' definito trovato. Impossibile determinare il prossimo turno.");
-            return;
-        }
-        
-        $prossimoIdDaImpostare = null;
-        $idRiferimentoPerAvanzamento = $userIdChiamanteCheHaCompletatoIlTurno ?: $this->prossimo_turno_chiamata_user_id;
-        
-        if ($idRiferimentoPerAvanzamento === null) {
-            // Caso di inizio asta/reset: il prossimo è il primo della lista
-            $prossimoIdDaImpostare = $utentiOrdinati[0];
-            Log::info("[AvanzaTurno] Inizio/Reset: prossimo turno impostato al primo utente (ID: {$prossimoIdDaImpostare}).");
         } else {
-            $indiceAttuale = array_search($idRiferimentoPerAvanzamento, $utentiOrdinati);
+            // ORDINE CHIAMATA È ATTIVO
+            Log::info("[AvanzaTurno V8] ORDINE CHIAMATA È ATTIVO. Cerco prossimo utente idoneo.");
+            $listaIdUtentiOrdinati = [];
             
-            if ($indiceAttuale !== false) { // L'utente di riferimento è nella lista ordinata
-                if (isset($utentiOrdinati[$indiceAttuale + 1])) {
-                    // C'è un utente successivo nella lista
-                    $prossimoIdDaImpostare = $utentiOrdinati[$indiceAttuale + 1];
-                    Log::info("[AvanzaTurno] Utente riferimento (ID: {$idRiferimentoPerAvanzamento}) trovato a indice {$indiceAttuale}. Prossimo è l'utente successivo (ID: {$prossimoIdDaImpostare}).");
-                } else {
-                    // L'utente di riferimento era l'ultimo, si torna al primo (giro completo)
-                    $prossimoIdDaImpostare = $utentiOrdinati[0];
-                    Log::info("[AvanzaTurno] Utente riferimento (ID: {$idRiferimentoPerAvanzamento}) era l'ultimo. Si torna al primo utente (ID: {$prossimoIdDaImpostare}).");
-                }
+            if (is_array($this->ordine_squadre_personalizzato) && !empty($this->ordine_squadre_personalizzato)) {
+                $customOrderArray = $this->ordine_squadre_personalizzato;
+                uasort($customOrderArray, fn($a, $b) => (int)$a <=> (int)$b); // Ordina per valore (posizione)
+                $listaIdUtentiOrdinati = array_map('intval', array_keys($customOrderArray)); // Assicura che gli ID siano interi
+                Log::debug("[AvanzaTurno V8] Uso 'ordine_squadre_personalizzato'. Utenti ordinati (ID): " . (!empty($listaIdUtentiOrdinati) ? implode(', ', $listaIdUtentiOrdinati) : "VUOTO"));
             } else {
-                // L'utente di riferimento non è (più) nella lista o il suo ordine_chiamata è stato rimosso.
-                // Per sicurezza, si imposta il primo della lista attuale.
-                $prossimoIdDaImpostare = $utentiOrdinati[0];
-                Log::warning("[AvanzaTurno] Utente riferimento (ID: {$idRiferimentoPerAvanzamento}) non trovato nella lista ordinata. Reimpostato al primo utente disponibile (ID: {$prossimoIdDaImpostare}).");
+                $utentiQuery = User::where('is_admin', false)->whereNotNull('ordine_chiamata')
+                ->orderBy('ordine_chiamata', 'asc')->orderBy('id', 'asc');
+                $listaIdUtentiOrdinati = $utentiQuery->pluck('id')->map(fn($id) => (int)$id)->toArray();
+                Log::debug("[AvanzaTurno V8] Uso 'ordine_chiamata' da User. Utenti ordinati (ID): " . (!empty($listaIdUtentiOrdinati) ? implode(', ', $listaIdUtentiOrdinati) : "VUOTO"));
+            }
+            
+            if (empty($listaIdUtentiOrdinati)) {
+                $this->prossimo_turno_chiamata_user_id = null;
+                Log::warning("[AvanzaTurno V8] Lista utenti ordinati VUOTA. Prossimo turno impostato a null.");
+            } else {
+                $numeroUtentiTotali = count($listaIdUtentiOrdinati);
+                $idRiferimentoAttuale = $this->prossimo_turno_chiamata_user_id ?? $userIdChiamanteCheHaCompletatoIlTurno;
+                
+                $indicePartenza = -1;
+                if ($idRiferimentoAttuale !== null) {
+                    $chiaveTemp = array_search((int)$idRiferimentoAttuale, $listaIdUtentiOrdinati, true);
+                    if ($chiaveTemp !== false) {
+                        $indicePartenza = $chiaveTemp;
+                    } else {
+                        Log::warning("[AvanzaTurno V8] ID riferimento {$idRiferimentoAttuale} non trovato in lista: [" . implode(', ',$listaIdUtentiOrdinati) . "]. Inizio ricerca dal primo.");
+                    }
+                }
+                Log::debug("[AvanzaTurno V8] ID Riferimento per avanzamento: " . ($idRiferimentoAttuale ?? 'null') . ". Indice partenza calcolato: {$indicePartenza}. N. Utenti: {$numeroUtentiTotali}");
+                
+                $prossimoIdTrovato = null;
+                for ($i = 1; $i <= $numeroUtentiTotali; $i++) { // Cicla al massimo N volte per controllare tutti una volta
+                    $indiceCandidato = ($indicePartenza + $i) % $numeroUtentiTotali;
+                    $utenteCandidatoId = $listaIdUtentiOrdinati[$indiceCandidato];
+                    $utenteCandidato = User::find($utenteCandidatoId);
+                    
+                    Log::debug("[AvanzaTurno V8] Tentativo {$i}. Controllo utente ID: {$utenteCandidatoId} (" . optional($utenteCandidato)->name . ") all'indice {$indiceCandidato}.");
+                    
+                    if ($utenteCandidato && $this->utentePuoChiamare($utenteCandidato)) {
+                        $prossimoIdTrovato = $utenteCandidatoId;
+                        Log::info("[AvanzaTurno V8] Utente ID: {$utenteCandidatoId} ({$utenteCandidato->name}) PUÒ chiamare.");
+                        break; // Trovato utente idoneo
+                    } else {
+                        Log::info("[AvanzaTurno V8] Utente ID: {$utenteCandidatoId} (" . optional($utenteCandidato)->name . ") NON può chiamare. Salto.");
+                    }
+                }
+                
+                $this->prossimo_turno_chiamata_user_id = $prossimoIdTrovato; // Sarà null se nessuno è idoneo
+                if ($prossimoIdTrovato) {
+                    Log::info("[AvanzaTurno V8] Prossimo turno CALCOLATO: " . User::find($prossimoIdTrovato)->name . " (ID: {$prossimoIdTrovato})");
+                } else {
+                    Log::warning("[AvanzaTurno V8] Nessun utente idoneo trovato. Prossimo turno CALCOLATO: null (STALLO).");
+                }
             }
         }
         
-        if ($this->prossimo_turno_chiamata_user_id != $prossimoIdDaImpostare) {
-            $this->prossimo_turno_chiamata_user_id = $prossimoIdDaImpostare;
+        // Salva solo se il valore è effettivamente cambiato rispetto a quello che c'era all'inizio del metodo
+        if ($valoreOriginaleProssimoTurno != $this->prossimo_turno_chiamata_user_id) {
+            Log::info("[AvanzaTurno V8] Valore di prossimo_turno_chiamata_user_id è CAMBIATO (Originale: ".($valoreOriginaleProssimoTurno ?? 'null').", Nuovo: ".($this->prossimo_turno_chiamata_user_id ?? 'null')."). Salvo.");
             $this->save();
-            Log::info("[AvanzaTurno] Salvataggio DB: prossimo_turno_chiamata_user_id aggiornato a: " . ($prossimoIdDaImpostare ?? 'null'));
+            Log::info("[AvanzaTurno V8 FINE] Salvataggio eseguito. Valore oggetto attuale: " . ($this->prossimo_turno_chiamata_user_id ?? 'null'));
         } else {
-            Log::info("[AvanzaTurno] Nessun cambiamento a prossimo_turno_chiamata_user_id (era già {$this->prossimo_turno_chiamata_user_id}, nuovo calcolato {$prossimoIdDaImpostare}).");
+            Log::info("[AvanzaTurno V8 FINE] Nessuna modifica a prossimo_turno_chiamata_user_id. Valore: " . ($this->prossimo_turno_chiamata_user_id ?? 'null'));
         }
     }
 }

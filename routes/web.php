@@ -101,5 +101,6 @@ Route::get('/', function () {
                 Route::get('/live', [AstaController::class, 'mostraAstaLive'])->name('live');
                 Route::post('/tap/rilancia/{chiamataAsta}', [AstaController::class, 'gestisciRilancioTap'])->name('tap.rilancia');
                 Route::get('/tap/stato/{idChiamataAsta}', [AstaController::class, 'statoAstaTap'])->name('asta.tap.stato');
-                Route::post('/tap/finalizza/{chiamataAsta}', [AstaController::class, 'finalizzaAstaTapScaduta'])->name('tap.finalizza');
+                //Route::post('/tap/finalizza/{chiamataAsta}', [AstaController::class, 'finalizzaAstaTapScaduta'])->name('tap.finalizza');
+                Route::post('/tap/finalizza/{idChiamataAstaUrlParam}', [AstaController::class, 'finalizzaAstaTapScaduta'])->name('tap.finalizza');
             });

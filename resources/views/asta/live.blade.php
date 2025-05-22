@@ -2,7 +2,7 @@
     <x-slot name="header">
         <h2 class="font-semibold text-xl text-gray-800 dark:text-gray-200 leading-tight">
             {{ __('Asta Live') }}
-            @if(isset($impostazioniLega))
+            @if(isset($impostazioniLega) && $impostazioniLega instanceof \App\Models\ImpostazioneLega)
                 - Fase: <span class="font-bold" id="fase-asta-display">{{ $impostazioniLega->fase_asta_corrente }}</span>
                 @if($impostazioniLega->tag_lista_attiva)
                     (Lista: <span class="font-bold" id="tag-lista-display">{{ $impostazioniLega->tag_lista_attiva }}</span>)
@@ -23,7 +23,7 @@
                         <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
                     </svg>
                     <span id="testo-prossimo-chiamante">
-                        @if(isset($chiamataDaMostrare) && $chiamataDaMostrare->stato_chiamata === 'in_asta_tap_live')
+                        @if(isset($isAstaAttualmenteLive) && $isAstaAttualmenteLive)
                             Asta in corso...
                         @elseif(isset($prossimoChiamanteNome) && $prossimoChiamanteNome !== __('Da definire'))
                             È il turno di: <strong class="text-lg">{{ $prossimoChiamanteNome }}</strong> per effettuare la prossima chiamata.
@@ -32,7 +32,7 @@
                         @endif
                     </span>
                 </p>
-                @if(Auth::check() && isset($impostazioniLega) && $impostazioniLega->prossimo_turno_chiamata_user_id == Auth::id() && (!isset($chiamataDaMostrare) || !in_array(optional($chiamataDaMostrare)->stato_chiamata, ['in_asta_tap_live', 'in_attesa_admin'])) )
+                @if(Auth::check() && isset($impostazioniLega) && $impostazioniLega->prossimo_turno_chiamata_user_id == Auth::id() && (!$isAstaAttualmenteLive && $statoChiamataDaMostrare !== 'in_attesa_admin') )
                     <p class="mt-2 text-sm" id="link-vai-a-chiamata">
                         <a href="{{ route('asta.calciatori.disponibili') }}" class="text-white bg-green-500 hover:bg-green-600 font-medium rounded-lg text-sm px-4 py-2 inline-flex items-center">
                             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
@@ -49,11 +49,20 @@
                 <div class="p-6 md:p-8 text-gray-900 dark:text-gray-100">
 
                     <div id="messaggi-globali-asta" class="mb-6 text-center min-h-[2.5rem] p-1 text-sm">
+                        @if (isset($messaggioEsitoIniziale) && $messaggioEsitoIniziale)
+                            <div class="text-lg font-semibold p-3 rounded-lg
+                                @if($statoChiamataDaMostrare === 'conclusa_tap_assegnato') bg-green-100 dark:bg-green-800 text-green-700 dark:text-green-200
+                                @elseif(in_array($statoChiamataDaMostrare, ['conclusa_tap_non_assegnato', 'annullata_admin'])) bg-orange-100 dark:bg-orange-800 text-orange-700 dark:text-orange-200
+                                @else bg-gray-100 dark:bg-gray-700/50 text-gray-700 dark:text-gray-300
+                                @endif">
+                                {{ $messaggioEsitoIniziale }}
+                            </div>
+                        @endif
                         @if (session('success')) <div class="text-green-700 bg-green-100 dark:bg-green-800 dark:text-green-200 p-3 rounded-lg">{{ session('success') }}</div> @endif
                         @if (session('error')) <div class="text-red-700 bg-red-100 dark:bg-red-800 dark:text-red-200 p-3 rounded-lg">{{ session('error') }}</div> @endif
                     </div>
 
-                    @if(isset($impostazioniLega))
+                    @if(isset($impostazioniLega) && $impostazioniLega instanceof \App\Models\ImpostazioneLega)
                         <div class="mb-4 text-center md:text-left">
                             <p><strong>{{ __('Modalità Asta:') }}</strong>
                                 <span class="font-semibold {{ $impostazioniLega->modalita_asta === 'tap' ? 'text-blue-600 dark:text-blue-400' : 'text-orange-600 dark:text-orange-400' }}" id="modalita-asta-display">
@@ -72,31 +81,19 @@
                         <hr class="my-6 dark:border-gray-700">
 
                         @if ($impostazioniLega->modalita_asta === 'tap')
-                            @php
-                                $isAstaAttualmenteLive = (isset($chiamataDaMostrare) && $chiamataDaMostrare->stato_chiamata === 'in_asta_tap_live' && isset($calciatoreInAsta));
-                                $idChiamataInizialePerPolling = optional($chiamataDaMostrare)->id ?? null; // Può essere live, in attesa, o l'ultima conclusa
-                                $timestampFineInizialePerCountdown = '';
-                                if ($isAstaAttualmenteLive && $chiamataDaMostrare->timestamp_fine_tap_prevista) {
-                                    try {
-                                        $timestampFineInizialePerCountdown = Carbon::parse($chiamataDaMostrare->timestamp_fine_tap_prevista)->timestamp;
-                                    } catch (\Exception $e) { $timestampFineInizialePerCountdown = 'ErroreParseTS'; }
-                                }
-                            @endphp
-
                             <div id="asta-container"
-                                 data-chiamata-id="{{ $idChiamataInizialePerPolling }}"
+                                 data-chiamata-id="{{ $idChiamataInizialePerPolling ?? '' }}"
                                  class="{{ $isAstaAttualmenteLive ? '' : 'hidden' }}">
-                                {{-- Contenuto dell'asta TAP live (calciatore, prezzo, offerente, bottoni rilancio, timer) --}}
                                 <div class="grid grid-cols-1 md:grid-cols-3 gap-6 md:gap-8 items-start">
                                     <div class="md:col-span-2 space-y-5 p-4 border border-gray-300 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-700/50">
                                         <div>
                                             <p class="text-xs uppercase text-gray-500 dark:text-gray-400 tracking-wider">{{ __('Calciatore all\'Asta') }}</p>
                                             <h3 class="text-2xl md:text-3xl font-bold text-indigo-700 dark:text-indigo-400" id="calciatore-nome-display">
-                                                {{ $isAstaAttualmenteLive ? (optional($calciatoreInAsta)->nome_completo ?? 'N/D') : 'N/D' }}
+                                                {{ $isAstaAttualmenteLive && isset($calciatoreInAsta_nome) ? $calciatoreInAsta_nome : 'N/D' }}
                                             </h3>
                                             <p class="text-sm text-gray-600 dark:text-gray-300" id="calciatore-dettagli-display">
-                                                @if($isAstaAttualmenteLive && isset($calciatoreInAsta))
-                                                    {{ $calciatoreInAsta->ruolo }} - {{ $calciatoreInAsta->squadra_serie_a }}
+                                                @if($isAstaAttualmenteLive && isset($calciatoreInAsta_ruolo) && isset($calciatoreInAsta_squadra))
+                                                    {{ $calciatoreInAsta_ruolo }} - {{ $calciatoreInAsta_squadra }}
                                                 @else - @endif
                                             </p>
                                         </div>
@@ -104,7 +101,7 @@
                                         <div>
                                             <p class="text-xs uppercase text-gray-500 dark:text-gray-400 tracking-wider">{{ __('Prezzo Partenza') }}</p>
                                             <p class="text-xl font-semibold" id="prezzo-partenza-display">
-                                                {{ $isAstaAttualmenteLive ? (optional($chiamataDaMostrare)->prezzo_partenza_tap ?? '--') : '--' }}
+                                                {{ $isAstaAttualmenteLive && isset($prezzoPartenzaTapIniziale) ? $prezzoPartenzaTapIniziale : '--' }}
                                             </p>
                                         </div>
                                         <hr class="dark:border-gray-600">
@@ -112,13 +109,13 @@
                                             <p class="text-xs uppercase text-gray-500 dark:text-gray-400 tracking-wider">{{ __('Migliore Offerta') }}</p>
                                             <p class="text-xl font-semibold" id="miglior-offerente-wrapper">
                                                 <span class="text-green-600 dark:text-green-400" id="prezzo-attuale-valore">
-                                                    {{ $isAstaAttualmenteLive ? (optional($chiamataDaMostrare)->prezzo_attuale_tap ?? '--') : '--' }}
+                                                    {{ $isAstaAttualmenteLive && isset($prezzoAttualeTapIniziale) ? $prezzoAttualeTapIniziale : '--' }}
                                                 </span>
                                                 <span id="miglior-offerente-nome">
-                                                    @if($isAstaAttualmenteLive && isset($migliorOfferente))
-                                                        da {{ $migliorOfferente->name }}
-                                                    @elseif($isAstaAttualmenteLive && isset($chiamataDaMostrare) && $chiamataDaMostrare->miglior_offerente_tap_id == optional($chiamataDaMostrare->utenteChiamante)->id)
-                                                        da {{ optional($chiamataDaMostrare->utenteChiamante)->name }} (chiamata)
+                                                    @if($isAstaAttualmenteLive && isset($migliorOfferente_nome))
+                                                        da {{ $migliorOfferente_nome }}
+                                                    @elseif($isAstaAttualmenteLive && (!isset($migliorOfferente_nome) && isset($prezzoAttualeTapIniziale) && $prezzoAttualeTapIniziale > 0 ) )
+                                                         {{ __(' (Offerta base)') }}
                                                     @elseif($isAstaAttualmenteLive)
                                                         {{ __(' (Nessuna offerta superiore)') }}
                                                     @else - @endif
@@ -142,7 +139,7 @@
                                 <div class="text-center mt-8 p-4 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700/50">
                                     <p class="text-md uppercase text-gray-600 dark:text-gray-300 tracking-wider">{{ __('Tempo Rimanente') }}</p>
                                     <p class="text-5xl md:text-6xl font-bold text-red-600 dark:text-red-400 my-2" id="countdown-timer"
-                                       data-timestamp-fine="{{ $timestampFineInizialePerCountdown }}">
+                                       data-timestamp-fine="{{ $timestampFineInizialePerCountdown ?? '' }}">
                                        {{-- Il JS popola questo --}}
                                     </p>
                                 </div>
@@ -151,20 +148,19 @@
 
                             <div id="nessuna-asta-tap-attiva" class="{{ $isAstaAttualmenteLive ? 'hidden' : '' }}">
                                 <div id="testo-placeholder-nessuna-asta" class="text-center text-gray-600 dark:text-gray-400 py-8">
-                                    @if(isset($chiamataDaMostrare) && $chiamataDaMostrare->stato_chiamata === 'in_attesa_admin' && $impostazioniLega->asta_tap_approvazione_admin)
+                                    @if(isset($statoChiamataDaMostrare) && $statoChiamataDaMostrare === 'in_attesa_admin' && $impostazioniLega->asta_tap_approvazione_admin && isset($initialDatiAstaInAttesa_calciatoreNome))
                                         <div class="p-4 bg-blue-100 dark:bg-blue-800 border-l-4 border-blue-500 dark:border-blue-400 text-blue-700 dark:text-blue-200">
-                                            Calciatore <strong>{{ optional($chiamataDaMostrare->calciatore)->nome_completo ?? 'Sconosciuto' }}</strong>
-                                            chiamato da <strong>{{ optional($chiamataDaMostrare->utenteChiamante)->name ?? 'Squadra' }}</strong>.
+                                            Calciatore <strong>{{ $initialDatiAstaInAttesa_calciatoreNome ?? 'Sconosciuto' }}</strong>
+                                            chiamato da <strong>{{ $initialDatiAstaInAttesa_chiamanteNome ?? 'Squadra' }}</strong>.
                                             In attesa di avvio da parte dell'admin.
                                         </div>
-                                    @elseif(isset($chiamataDaMostrare) && in_array($chiamataDaMostrare->stato_chiamata, ['conclusa_tap_assegnato', 'conclusa_tap_non_assegnato', 'annullata_admin']))
-                                        {{-- Questo messaggio verrà gestito da messaggi-globali-asta, ma possiamo lasciare un placeholder se necessario --}}
-                                    @else
-                                        {{-- Questo sarà aggiornato dal JS se non ci sono aste attive o in attesa --}}
+                                    @elseif(isset($statoChiamataDaMostrare) && in_array($statoChiamataDaMostrare, ['conclusa_tap_assegnato', 'conclusa_tap_non_assegnato', 'annullata_admin']))
+                                        {{-- Messaggio gestito da #messaggi-globali-asta --}}
+                                    @elseif(!isset($messaggioEsitoIniziale))
                                         Nessuna asta TAP attualmente attiva.
                                     @endif
                                 </div>
-                                @if (Auth::check() && (!isset($chiamataDaMostrare) || !in_array(optional($chiamataDaMostrare)->stato_chiamata, ['in_asta_tap_live', 'in_attesa_admin'])) )
+                                @if (Auth::check() && !$isAstaAttualmenteLive && (!isset($statoChiamataDaMostrare) || $statoChiamataDaMostrare !== 'in_attesa_admin') )
                                     <p class="text-center mt-4" id="link-vai-a-chiamata-placeholder">
                                         <a href="{{ route('asta.calciatori.disponibili') }}" class="text-indigo-600 dark:text-indigo-400 hover:underline">
                                             {{ __('Vai alla lista giocatori per chiamarne uno') }}
@@ -198,7 +194,7 @@
 @push('scripts')
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    console.log('[ASTA LIVE SCRIPT V5 - Gestione Attesa Admin e Ordine Chiamata] Caricato');
+    console.log('[ASTA LIVE SCRIPT V5.2 - Gestione Countdown e ID Finalizzazione] Caricato');
 
     const astaContainerEl = document.getElementById('asta-container');
     const nessunaAstaTapDivEl = document.getElementById('nessuna-asta-tap-attiva');
@@ -214,15 +210,13 @@ document.addEventListener('DOMContentLoaded', function() {
     const prezzoPartenzaDisplayEl = document.getElementById('prezzo-partenza-display');
     const creditiPersonaliDisplayEl = document.getElementById('crediti-personali-display');
 
-    // Elementi per info ordine chiamata
     const boxProssimoChiamanteEl = document.getElementById('box-prossimo-chiamante');
     const testoProssimoChiamanteEl = document.getElementById('testo-prossimo-chiamante');
     const linkVaiAChiamataEl = document.getElementById('link-vai-a-chiamata');
     const linkVaiAChiamataPlaceholderEl = document.getElementById('link-vai-a-chiamata-placeholder');
 
-    // Variabili inizializzate da Blade
-    let idChiamataPerPolling = astaContainerEl ? astaContainerEl.dataset.chiamataId : null;
-    let timestampFinePerCountdown = countdownElement && countdownElement.dataset.timestampFine && countdownElement.dataset.timestampFine !== 'ErroreParseTS' ? parseInt(countdownElement.dataset.timestampFine) * 1000 : 0;
+    let idChiamataPerPolling = '{{ $idChiamataInizialePerPolling ?? "0" }}';
+    let timestampFinePerCountdown = countdownElement && countdownElement.dataset.timestampFine && countdownElement.dataset.timestampFine !== 'ErroreParseTS' && countdownElement.dataset.timestampFine !== '' ? parseInt(countdownElement.dataset.timestampFine) * 1000 : 0;
 
     const currentUserId = {{ Auth::id() ?? 'null' }};
     const impostazioniLegaAstaTapApprovazioneAdmin = {{ Js::from(optional($impostazioniLega)->asta_tap_approvazione_admin ?? false) }};
@@ -236,14 +230,11 @@ document.addEventListener('DOMContentLoaded', function() {
     const URL_BASE_RILANCIA = "{{ url('/asta/tap/rilancia') }}";
     const URL_BASE_FINALIZZA = "{{ url('/asta/tap/finalizza') }}";
 
-    console.log('[JS Init V5] ID Chiamata Iniziale (da data-att):', idChiamataPerPolling);
-    console.log('[JS Init V5] Timestamp Fine Iniziale (ms):', timestampFinePerCountdown);
-    console.log('[JS Init V5] Approvazione Admin Richiesta:', impostazioniLegaAstaTapApprovazioneAdmin);
-    console.log('[JS Init V5] Usa Ordine Chiamata:', impostazioniLegaUsaOrdineChiamata);
-
+    console.log('[JS Init V5.2] ID Chiamata Iniziale (da Blade):', idChiamataPerPolling);
+    console.log('[JS Init V5.2] Timestamp Fine Iniziale (ms) (da Blade):', timestampFinePerCountdown);
 
     function resetInterfacciaPerNuovaAsta(messaggioPlaceholder = "Caricamento stato asta...") {
-        console.log("[UI Reset V5] Resetto interfaccia.", messaggioPlaceholder);
+        console.log("[UI Reset V5.2] Resetto interfaccia.", messaggioPlaceholder);
         if(astaContainerEl) astaContainerEl.classList.add('hidden');
         if(nessunaAstaTapDivEl) nessunaAstaTapDivEl.classList.remove('hidden');
         if(testoPlaceholderNessunaAstaEl) {
@@ -267,17 +258,17 @@ document.addEventListener('DOMContentLoaded', function() {
         if(astaCountdownInterval) clearInterval(astaCountdownInterval);
         astaCountdownInterval = null;
         astaFinalizzataClient = false;
+        if(astaContainerEl) astaContainerEl.dataset.chiamataId = ''; // Resetta anche il dataset
     }
 
     function aggiornaInterfacciaConDatiServer(data) {
         if (!data) { console.warn("aggiornaInterfacciaConDatiServer: no data received."); return; }
-        console.log("[UI Update V5] Dati ricevuti:", JSON.parse(JSON.stringify(data)));
+        console.log("[UI Update V5.2] Dati ricevuti:", JSON.parse(JSON.stringify(data)));
 
         if (creditiPersonaliDisplayEl && data.crediti_utente_corrente !== undefined && data.crediti_utente_corrente !== null) {
             creditiPersonaliDisplayEl.textContent = data.crediti_utente_corrente;
         }
-
-        // Aggiorna info "Prossimo a chiamare" se l'ordine è attivo
+        
         if (impostazioniLegaUsaOrdineChiamata && testoProssimoChiamanteEl && boxProssimoChiamanteEl) {
             boxProssimoChiamanteEl.style.display = 'block';
             let testoTurno = '';
@@ -296,33 +287,53 @@ document.addEventListener('DOMContentLoaded', function() {
             const noAstaAttivaOInAttesaSpecificamente = data.status !== 'in_asta_tap_live' && data.status !== 'in_attesa_admin';
 
             if (linkVaiAChiamataEl) linkVaiAChiamataEl.style.display = (isMyTurn && noAstaAttivaOInAttesaSpecificamente) ? 'block' : 'none';
-            if (linkVaiAChiamataPlaceholderEl) { // Questo è il link generico sotto
-                 linkVaiAChiamataPlaceholderEl.style.display = (!isMyTurn && noAstaAttivaOInAttesaSpecificamente) ? 'block' : 'none';
+            
+            if (linkVaiAChiamataPlaceholderEl) {
+                 const deveMostrareLinkGenerico = !isMyTurn && 
+                                                  noAstaAttivaOInAttesaSpecificamente && 
+                                                  (!impostazioniLegaUsaOrdineChiamata || 
+                                                  (impostazioniLegaUsaOrdineChiamata && (data.prossimo_chiamante_id !== null || data.status === 'non_trovata' || data.status === null || data.status === undefined) )) ;
+
+                 linkVaiAChiamataPlaceholderEl.style.display = deveMostrareLinkGenerico ? 'block' : 'none';
             }
-
-
         } else if (boxProssimoChiamanteEl) {
-            boxProssimoChiamanteEl.style.display = 'none'; // Nascondi se l'ordine non è attivo
+            boxProssimoChiamanteEl.style.display = 'none';
         }
 
-        // Logica di visualizzazione principale
         if (data.status === 'in_asta_tap_live') {
-            console.log("[UI Update V5] Stato Rilevato: IN_ASTA_TAP_LIVE per chiamata ID:", data.chiamata_id);
+            console.log("[UI Update V5.2] Stato Rilevato: IN_ASTA_TAP_LIVE per chiamata ID:", data.chiamata_id);
             astaFinalizzataClient = false;
             if (astaContainerEl) {
                 astaContainerEl.classList.remove('hidden');
-                astaContainerEl.dataset.chiamataId = data.chiamata_id;
+                astaContainerEl.dataset.chiamataId = data.chiamata_id; // Fondamentale aggiornare qui
             }
             if (nessunaAstaTapDivEl) nessunaAstaTapDivEl.classList.add('hidden');
-            if (messaggiGlobaliDiv && parseInt(idChiamataPerPolling) === parseInt(data.chiamata_id) ) {
-                 messaggiGlobaliDiv.innerHTML = '';
+            
+            if (messaggiGlobaliDiv && (idChiamataPerPolling === "0" || (idChiamataPerPolling && parseInt(idChiamataPerPolling) === parseInt(data.chiamata_id)) )) {
+                 if (!messaggiGlobaliDiv.innerHTML.includes('session(') && !messaggiGlobaliDiv.querySelector('.rounded-lg')) {
+                     messaggiGlobaliDiv.innerHTML = '';
+                 }
             }
 
             if(calciatoreNomeDisplayEl) calciatoreNomeDisplayEl.textContent = data.calciatore_nome || 'N/D';
             if(calciatoreDettagliDisplayEl) calciatoreDettagliDisplayEl.textContent = (data.calciatore_ruolo && data.calciatore_squadra_serie_a) ? `${data.calciatore_ruolo} - ${data.calciatore_squadra_serie_a}` : '-';
             if(prezzoPartenzaDisplayEl) prezzoPartenzaDisplayEl.textContent = data.prezzo_partenza_tap !== undefined ? data.prezzo_partenza_tap : '--';
             if(prezzoAttualeValEl) prezzoAttualeValEl.textContent = data.prezzo_attuale !== null ? data.prezzo_attuale : '--';
-            if(migliorOfferenteNomeEl) migliorOfferenteNomeEl.textContent = data.miglior_offerente ? `da ${data.miglior_offerente}` : (data.prezzo_attuale > 0 ? ' (Offerta base)' : ' - ');
+            
+            let nomeMigliorOfferenteVis = '';
+            if (data.miglior_offerente) { // Questo viene dal join nel controller se miglior_offerente_tap_id è settato
+                nomeMigliorOfferenteVis = `da ${data.miglior_offerente}`;
+                if (data.miglior_offerente_id === data.user_id_chiamante && data.prezzo_attuale == data.prezzo_partenza_tap) {
+                     nomeMigliorOfferenteVis = `da ${data.chiamante_nome || data.miglior_offerente} (chiamata)`;
+                }
+            } else if (data.prezzo_attuale > 0 && data.user_id_chiamante && data.chiamante_nome) { // Offerta base del chiamante
+                 nomeMigliorOfferenteVis = `da ${data.chiamante_nome} (chiamata)`;
+            } else if (data.prezzo_attuale > 0) {
+                 nomeMigliorOfferenteVis = ' (Offerta base)';
+            } else {
+                nomeMigliorOfferenteVis = ' - ';
+            }
+            if(migliorOfferenteNomeEl) migliorOfferenteNomeEl.textContent = nomeMigliorOfferenteVis;
 
             bottoniRilancio.forEach(btn => {
                 const isDisabled = (data.miglior_offerente_id === currentUserId || !currentUserId);
@@ -334,7 +345,7 @@ document.addEventListener('DOMContentLoaded', function() {
             avviaOAggiornaCountdown(data.timestamp_fine_prevista_unix);
 
         } else if (data.asta_in_attesa_admin_id && data.dati_asta_in_attesa_admin && impostazioniLegaAstaTapApprovazioneAdmin) {
-            console.log("[UI Update V5] Stato Rilevato: ASTA_IN_ATTESA_ADMIN ID:", data.asta_in_attesa_admin_id);
+            console.log("[UI Update V5.2] Stato Rilevato: ASTA_IN_ATTESA_ADMIN ID:", data.asta_in_attesa_admin_id);
             if (astaContainerEl) astaContainerEl.classList.add('hidden');
             if (nessunaAstaTapDivEl) nessunaAstaTapDivEl.classList.remove('hidden');
             if (countdownElement) countdownElement.textContent = "ASTA NON ATTIVA";
@@ -347,12 +358,15 @@ document.addEventListener('DOMContentLoaded', function() {
                 testoPlaceholderNessunaAstaEl.innerHTML = `<div class="p-4 bg-blue-100 dark:bg-blue-800 border-l-4 border-blue-500 dark:border-blue-400 text-blue-700 dark:text-blue-200 rounded-md">${msgAttesa}</div>`;
                 testoPlaceholderNessunaAstaEl.style.display = 'block';
             }
-            if (messaggiGlobaliDiv) messaggiGlobaliDiv.innerHTML = '';
+            if (messaggiGlobaliDiv && !messaggiGlobaliDiv.innerHTML.includes('session(') ) messaggiGlobaliDiv.innerHTML = '';
             if (linkVaiAChiamataPlaceholderEl) linkVaiAChiamataPlaceholderEl.style.display = 'none';
 
-        } else { // Nessuna asta live, nessuna in attesa (o approvazione admin non attiva) -> mostra esito dell'asta richiesta o messaggio di default
-            console.log("[UI Update V5] Stato: NON IN_ASTA_TAP_LIVE e NESSUNA IN ATTESA. Stato ricevuto: " + data.status + ", Chiamata ID: " + data.chiamata_id);
-            if (astaContainerEl && (!idChiamataPerPolling || parseInt(idChiamataPerPolling) === parseInt(data.chiamata_id) || data.status === 'non_trovata' )) {
+        } else { // Nessuna asta live, nessuna in attesa (o approvazione admin non attiva)
+            console.log("[UI Update V5.2] Stato: NON IN_ASTA_TAP_LIVE e NESSUNA IN ATTESA. Stato ricevuto: " + data.status + ", Chiamata ID: " + data.chiamata_id);
+            
+            // Nascondi il container dell'asta live solo se l'asta che stavamo pollando è quella che ora non è live
+            // o se siamo in discovery e non c'è nulla.
+            if (astaContainerEl && (data.chiamata_id === parseInt(idChiamataPerPolling) || idChiamataPerPolling === "0" || data.status === 'non_trovata')) {
                  astaContainerEl.classList.add('hidden');
             }
             if(nessunaAstaTapDivEl) nessunaAstaTapDivEl.classList.remove('hidden');
@@ -364,42 +378,38 @@ document.addEventListener('DOMContentLoaded', function() {
             else if (['conclusa_tap_non_assegnato', 'annullata_admin', 'errore_assegnazione_finale'].includes(data.status)) { bgColor = 'bg-orange-100 dark:bg-orange-800'; textColor = 'text-orange-700 dark:text-orange-200'; }
             else if (data.status === 'non_trovata'){ bgColor = 'bg-yellow-100 dark:bg-yellow-700'; textColor = 'text-yellow-700 dark:text-yellow-200';}
 
-
-            if (messaggiGlobaliDiv && data.messaggio_esito) {
+            // Mostra il messaggio di esito solo se l'asta-container è nascosto (cioè, non stiamo già mostrando un'asta live)
+            // O se il messaggio è per l'ID che stavamo pollando
+            if (messaggiGlobaliDiv && data.messaggio_esito && (astaContainerEl.classList.contains('hidden') || parseInt(data.chiamata_id) === parseInt(idChiamataPerPolling) || idChiamataPerPolling === "0" )) {
                 messaggiGlobaliDiv.innerHTML = `<div class="text-lg font-semibold p-3 rounded-lg ${bgColor} ${textColor}">${data.messaggio_esito}</div>`;
-            } else if (messaggiGlobaliDiv) {
-                 messaggiGlobaliDiv.innerHTML = '';
+            } else if (messaggiGlobaliDiv && !data.messaggio_esito && !messaggiGlobaliDiv.innerHTML.includes('session(') && astaContainerEl.classList.contains('hidden') ) {
+                 messaggiGlobaliDiv.innerHTML = ''; // Pulisci solo se non c'è un'asta e nessun messaggio di sessione
             }
 
+
             if(testoPlaceholderNessunaAstaEl) {
-                testoPlaceholderNessunaAstaEl.style.display = data.messaggio_esito ? 'none' : 'block';
-                if (!data.messaggio_esito) {
+                // Mostra il placeholder "Nessuna asta TAP attualmente attiva" solo se:
+                // 1. Non c'è un messaggio di esito specifico da mostrare
+                // 2. E il contenitore dell'asta live è effettivamente nascosto
+                const deveMostrarePlaceholderDefault = !data.messaggio_esito && astaContainerEl.classList.contains('hidden');
+                testoPlaceholderNessunaAstaEl.style.display = deveMostrarePlaceholderDefault ? 'block' : 'none';
+                if (deveMostrarePlaceholderDefault) {
                      testoPlaceholderNessunaAstaEl.innerHTML = "<p class='text-gray-500 dark:text-gray-400'>Nessuna asta TAP attualmente attiva.</p>";
                 }
             }
-            // Mostra link generico per chiamare se non c'è un'asta attiva/attesa e non è il turno dell'utente (se ordine attivo)
-             if (linkVaiAChiamataPlaceholderEl &&
-                data.status !== 'in_attesa_admin' &&
-                !(impostazioniLegaUsaOrdineChiamata && data.prossimo_chiamante_id && parseInt(data.prossimo_chiamante_id) === parseInt(currentUserId))
-                ) {
-                 linkVaiAChiamataPlaceholderEl.style.display = 'block';
-            } else if (linkVaiAChiamataPlaceholderEl){
-                linkVaiAChiamataPlaceholderEl.style.display = 'none';
-            }
 
-
-            if (['conclusa_tap_assegnato', 'conclusa_tap_non_assegnato', 'annullata_admin', 'non_trovata'].includes(data.status) &&
+            // Logica per fermare il countdown se l'asta polata è conclusa
+            if (['conclusa_tap_assegnato', 'conclusa_tap_non_assegnato', 'annullata_admin'].includes(data.status) && // Rimosso 'non_trovata'
                 idChiamataPerPolling && parseInt(idChiamataPerPolling) === parseInt(data.chiamata_id)) {
-                // Non fermare il polling interval qui, lascialo continuare per la discovery
                 if (astaCountdownInterval) clearInterval(astaCountdownInterval); astaCountdownInterval = null;
-                console.log("[UI Update V5] Countdown fermato per stato finale:", data.status, "per ID:", data.chiamata_id);
+                console.log("[UI Update V5.2] Countdown fermato per stato finale:", data.status, "per ID:", data.chiamata_id);
             }
         }
     }
 
     function updateCountdown() {
         if (!timestampFinePerCountdown || timestampFinePerCountdown <= 0 || astaFinalizzataClient) {
-            if(countdownElement) countdownElement.textContent = astaFinalizzataClient ? "TEMPO SCADUTO" : (idChiamataPerPolling && astaContainerEl && !astaContainerEl.classList.contains('hidden') ? "--:--" : "ASTA NON ATTIVA");
+            if(countdownElement) countdownElement.textContent = astaFinalizzataClient ? "TEMPO SCADUTO" : (idChiamataPerPolling && idChiamataPerPolling !== "0" && astaContainerEl && !astaContainerEl.classList.contains('hidden') ? "--:--" : "ASTA NON ATTIVA");
             if(astaCountdownInterval) clearInterval(astaCountdownInterval); astaCountdownInterval = null;
             return;
         }
@@ -410,11 +420,14 @@ document.addEventListener('DOMContentLoaded', function() {
             if(countdownElement) countdownElement.textContent = "TEMPO SCADUTO";
             if(astaCountdownInterval) clearInterval(astaCountdownInterval); astaCountdownInterval = null;
 
-            const idAstaDaFinalizzare = astaContainerEl && astaContainerEl.dataset.chiamataId ? parseInt(astaContainerEl.dataset.chiamataId) : null;
-            if (!astaFinalizzataClient && idAstaDaFinalizzare && idChiamataPerPolling && parseInt(idChiamataPerPolling) === idAstaDaFinalizzare) {
+            const idAstaDaFinalizzareCorrente = idChiamataPerPolling ? parseInt(idChiamataPerPolling) : null;
+
+            if (!astaFinalizzataClient && idAstaDaFinalizzareCorrente && idAstaDaFinalizzareCorrente !== 0) {
                 astaFinalizzataClient = true;
-                console.log("[Countdown JS V5] Tempo scaduto, chiamo finalizzaAstaSulServer per ID:", idAstaDaFinalizzare);
-                finalizzaAstaSulServer(idAstaDaFinalizzare);
+                console.log("[Countdown JS V5.2] Tempo scaduto, chiamo finalizzaAstaSulServer per ID (da idChiamataPerPolling):", idAstaDaFinalizzareCorrente);
+                finalizzaAstaSulServer(idAstaDaFinalizzareCorrente);
+            } else {
+                 console.warn("[Countdown JS V5.2] Tentativo di finalizzazione evitato (updateCountdown): astaFinalizzataClient=", astaFinalizzataClient, "idAstaDaFinalizzareCorrente=", idAstaDaFinalizzareCorrente);
             }
             return;
         }
@@ -426,15 +439,16 @@ document.addEventListener('DOMContentLoaded', function() {
     function avviaOAggiornaCountdown(nuovoTimestampFineUnixServer) {
         const tsRicevutoUnix = nuovoTimestampFineUnixServer ? parseInt(nuovoTimestampFineUnixServer) : 0;
         const oraAttualeUnix = Math.floor(Date.now() / 1000);
-        const tolleranzaPassato = 60; // secondi
+        const tolleranzaPassato = 5; // Ridotta tolleranza per essere più reattivi
 
-        console.log(`[Countdown JS V5] avviaOAggiorna. Ricevuto Unix: ${nuovoTimestampFineUnixServer}`);
+        console.log(`[Countdown JS V5.2] avviaOAggiorna. Ricevuto Unix: ${nuovoTimestampFineUnixServer}`);
 
         if (tsRicevutoUnix && tsRicevutoUnix > (oraAttualeUnix - tolleranzaPassato)) {
             timestampFinePerCountdown = tsRicevutoUnix * 1000;
             if (countdownElement) countdownElement.dataset.timestampFine = nuovoTimestampFineUnixServer.toString();
+            console.log('[Countdown JS V5.2] Timestamp fine aggiornato a (ms):', timestampFinePerCountdown);
         } else {
-            console.warn('[Countdown JS V5] Timestamp non valido, nullo, o troppo nel passato:', nuovoTimestampFineUnixServer, ". Imposto timestampFinePerCountdown a 0.");
+            console.warn('[Countdown JS V5.2] Timestamp non valido, nullo, o troppo nel passato:', nuovoTimestampFineUnixServer, ". Imposto timestampFinePerCountdown a 0.");
             timestampFinePerCountdown = 0;
             if (countdownElement) countdownElement.dataset.timestampFine = '';
         }
@@ -443,20 +457,22 @@ document.addEventListener('DOMContentLoaded', function() {
         astaCountdownInterval = null;
 
         if (countdownElement && timestampFinePerCountdown > 0) {
-            updateCountdown();
+            updateCountdown(); 
             astaCountdownInterval = setInterval(updateCountdown, 1000);
-            console.log('[Countdown JS V5] Countdown avviato/resettato. Fine (ms):', timestampFinePerCountdown);
+            console.log('[Countdown JS V5.2] Countdown avviato/resettato.');
         } else if (countdownElement) {
-             countdownElement.textContent = (idChiamataPerPolling && astaContainerEl && !astaContainerEl.classList.contains('hidden')) ? "--:--" : "ASTA NON ATTIVA";
+             countdownElement.textContent = (idChiamataPerPolling && idChiamataPerPolling !== "0" && astaContainerEl && !astaContainerEl.classList.contains('hidden')) ? "--:--" : "ASTA NON ATTIVA";
+             console.log('[Countdown JS V5.2] Countdown NON avviato (timestamp non valido o nullo). Mostro ASTA NON ATTIVA o --:--.');
         }
     }
 
     bottoniRilancio.forEach(button => {
         button.addEventListener('click', function() {
-            if (this.disabled) return;
+            // ... (codice rilancio invariato, assicurati che idAstaPerRilancio sia corretto)
+             if (this.disabled) return;
             const idAstaPerRilancio = astaContainerEl && astaContainerEl.dataset.chiamataId ? parseInt(astaContainerEl.dataset.chiamataId) : null;
 
-            if (!idAstaPerRilancio || (idChiamataPerPolling && idAstaPerRilancio !== parseInt(idChiamataPerPolling)) ) {
+            if (!idAstaPerRilancio || (idChiamataPerPolling && idChiamataPerPolling !== "0" && idAstaPerRilancio !== parseInt(idChiamataPerPolling)) ) {
                 if(messaggiRilancioDiv) messaggiRilancioDiv.innerHTML = `<span class="text-red-500 dark:text-red-300">${'Errore: ID Asta per rilancio non corrisponde.'}</span>`;
                 return;
             }
@@ -473,12 +489,18 @@ document.addEventListener('DOMContentLoaded', function() {
             .then(({ ok, status, data }) => {
                 if (ok && data.success) {
                     if(messaggiRilancioDiv) messaggiRilancioDiv.innerHTML = `<span class="text-green-600 dark:text-green-300">${data.message || 'Offerta registrata!'}</span>`;
-                    // Il polling successivo aggiornerà l'interfaccia.
+                    if(data.nuovo_prezzo && prezzoAttualeValEl) prezzoAttualeValEl.textContent = data.nuovo_prezzo;
+                    if(data.miglior_offerente && migliorOfferenteNomeEl) migliorOfferenteNomeEl.textContent = `da ${data.miglior_offerente}`;
+                    if(data.timestamp_fine_tap_prevista_unix) avviaOAggiornaCountdown(data.timestamp_fine_tap_prevista_unix);
+                    if (data.miglior_offerente_id === currentUserId) {
+                        bottoniRilancio.forEach(btn => {
+                            btn.disabled = true;
+                            btn.classList.add('opacity-50', 'cursor-not-allowed');
+                        });
+                    }
                 } else {
                     if(messaggiRilancioDiv) messaggiRilancioDiv.innerHTML = `<span class="text-red-500 dark:text-red-300">${'Errore'}: ${data.error || data.message || 'Offerta non valida ('+status+').'}</span>`;
                 }
-                 // Forza un fetch immediato dello stato dopo un rilancio per aggiornare subito l'UI
-                if (idChiamataPerPolling) fetchStatoAsta(idChiamataPerPolling);
             })
             .catch(error => {
                 console.error('[Rilancio JS] Catch Errore Fetch:', error);
@@ -488,164 +510,165 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     function finalizzaAstaSulServer(chiamataIdDaFinalizzare) {
-        if (!chiamataIdDaFinalizzare) { console.error('[Finalizza JS V5] ID chiamata mancante.'); return; }
-        console.log('[Finalizza JS V5] Tentativo finalizzazione per ID:', chiamataIdDaFinalizzare);
+        if (!chiamataIdDaFinalizzare || chiamataIdDaFinalizzare === 0 || chiamataIdDaFinalizzare === "0") { // Controllo esplicito per "0"
+            console.error('[Finalizza JS V5.2] ID chiamata non valido o "0" (discovery). Non chiamo il server per finalizzazione. ID:', chiamataIdDaFinalizzare);
+            // Potrebbe essere necessario resettare astaFinalizzataClient se l'ID è 0
+            if (chiamataIdDaFinalizzare === 0 || chiamataIdDaFinalizzare === "0") astaFinalizzataClient = false;
+            return;
+        }
+        console.log('[Finalizza JS V5.2] Tentativo finalizzazione per ID (valore passato):', chiamataIdDaFinalizzare);
         const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
-        if(!csrfToken) { console.error('[Finalizza JS V5] CSRF Token mancante.'); return; }
-        if(messaggiGlobaliDiv && messaggiGlobaliDiv.innerHTML.trim() === '') messaggiGlobaliDiv.innerHTML = `<div class="p-2 text-blue-600 dark:text-blue-300">${'Finalizzazione asta in corso...'}</div>`;
+        if(!csrfToken) { console.error('[Finalizza JS V5.2] CSRF Token mancante.'); return; }
+        if(messaggiGlobaliDiv && !messaggiGlobaliDiv.innerHTML.includes('session(') && !messaggiGlobaliDiv.querySelector('.rounded-lg') ) messaggiGlobaliDiv.innerHTML = `<div class="p-2 text-blue-600 dark:text-blue-300">${'Finalizzazione asta in corso...'}</div>`;
 
-        fetch(`${URL_BASE_FINALIZZA}/${chiamataIdDaFinalizzare}`, {
+        fetch(`${URL_BASE_FINALIZZA}/${chiamataIdDaFinalizzare}`, { // L'ID viene aggiunto qui
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrfToken, 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }
         })
         .then(response => response.json())
         .then(data => {
-            console.log('[Finalizza JS V5] Risposta da finalizzazione server:', data);
-            // Il prossimo polling aggiornerà l'interfaccia, o forziamo un aggiornamento
+            console.log('[Finalizza JS V5.2] Risposta da finalizzazione server:', data);
+            // Il prossimo polling dovrebbe aggiornare, ma forziamo per immediatezza
             if (idChiamataPerPolling) fetchStatoAsta(idChiamataPerPolling);
         })
         .catch(error => {
             console.error('Errore durante la finalizzaAstaSulServer:', error);
             if(messaggiGlobaliDiv) messaggiGlobaliDiv.innerHTML = `<div class="p-2 text-red-500 dark:text-red-300">Errore tecnico durante la finalizzazione.</div>`;
+            astaFinalizzataClient = false; // Permetti un nuovo tentativo se c'è un errore di rete
         });
     }
 
     function fetchStatoAsta(idAstaDaControllareInput) {
-        const idNumericToControl = idAstaDaControllareInput ? parseInt(idAstaDaControllareInput) : 0; // Se null/undefined, usa 0 per discovery
+        const idNumericToControl = idAstaDaControllareInput ? parseInt(idAstaDaControllareInput) : 0;
 
-        if (idNumericToControl === 0) {
-            console.warn('[Polling Fetch V5] ID 0 per discovery. Chiamo il server per stato generale.');
-        } else if (isNaN(idNumericToControl)) {
-            console.error('[Polling Fetch V5] ID asta da controllare NON VALIDO (NaN):', idAstaDaControllareInput);
-            // Potremmo fermare il polling o tentare una discovery
-            if(window.astaPollingInterval) clearInterval(window.astaPollingInterval); window.astaPollingInterval = null;
-            resetInterfacciaPerNuovaAsta("Errore: ID asta non valido.");
-            return;
-        }
+        console.log(`[Polling Fetch V5.2] Chiamata fetchStatoAsta per ID: ${idNumericToControl}`);
 
-        fetch(`${URL_BASE_STATO}/${idNumericToControl}`) // Chiamerà /asta/tap/stato/0 per discovery
+        fetch(`${URL_BASE_STATO}/${idNumericToControl}`)
             .then(response => {
                 if (!response.ok) {
-                    console.error(`[Polling Fetch V5] Errore HTTP ${response.status} per ID ${idNumericToControl}`);
+                    console.error(`[Polling Fetch V5.2] Errore HTTP ${response.status} per ID ${idNumericToControl}`);
                     return response.json().then(errData => { throw { responseStatus: response.status, data: errData, requestedId: idNumericToControl }; });
                 }
                 return response.json();
             })
             .then(data => {
-                if (!data) { console.warn("[Polling Fetch V5] Dati nulli ricevuti per ID:", idNumericToControl); return; }
+                if (!data) { console.warn("[Polling Fetch V5.2] Dati nulli ricevuti per ID:", idNumericToControl); return; }
 
                 const serverReportedLiveId = data.asta_live_corrente_id ? parseInt(data.asta_live_corrente_id) : null;
                 const serverReportedAttesaId = data.asta_in_attesa_admin_id ? parseInt(data.asta_in_attesa_admin_id) : null;
                 let currentlyPollingIdNumeric = idChiamataPerPolling ? parseInt(idChiamataPerPolling) : 0;
                 if (isNaN(currentlyPollingIdNumeric)) currentlyPollingIdNumeric = 0;
 
+                console.log(`[Polling JS V5.2 Debug] Polling per ID: ${currentlyPollingIdNumeric}. Server dice LIVE: ${serverReportedLiveId}. Server dice ATTESA: ${serverReportedAttesaId}. Dati ricevuti per chiamata ID: ${data.chiamata_id}. Stato dati: ${data.status}`);
 
-                console.log(`[Polling JS V5 Debug] Polling per ID: ${currentlyPollingIdNumeric}. Server dice LIVE: ${serverReportedLiveId}. Server dice ATTESA: ${serverReportedAttesaId}. Dati ricevuti per chiamata ID: ${data.chiamata_id}. Stato dati: ${data.status}`);
-
-                // Logica di transizione prioritaria
                 if (serverReportedLiveId && serverReportedLiveId !== currentlyPollingIdNumeric) {
-                    console.warn(`[Polling Transizione V5] NUOVA ASTA LIVE (ID: ${serverReportedLiveId}) rilevata! Cambio target polling.`);
-                    if (window.astaPollingInterval) clearInterval(window.astaPollingInterval);
+                    console.warn(`[Polling Transizione V5.2] NUOVA ASTA LIVE (ID: ${serverReportedLiveId}) rilevata! Cambio target polling.`);
+                    if (window.astaPollingInterval) clearInterval(window.astaPollingInterval); window.astaPollingInterval = null;
                     resetInterfacciaPerNuovaAsta("Caricamento nuova asta live...");
                     idChiamataPerPolling = serverReportedLiveId.toString();
                     if (astaContainerEl) astaContainerEl.dataset.chiamataId = idChiamataPerPolling;
-                    startPollingAsta(idChiamataPerPolling); // Riavvia polling per la nuova asta live
-                    return; // Esce per evitare di processare dati vecchi/conflittuali
+                    startPollingAsta(idChiamataPerPolling); 
+                    return; 
                 }
 
                 if (!serverReportedLiveId && serverReportedAttesaId && serverReportedAttesaId !== currentlyPollingIdNumeric) {
-                    console.warn(`[Polling Transizione V5] NUOVA ASTA IN ATTESA (ID: ${serverReportedAttesaId}) rilevata! Cambio target polling.`);
-                    if (window.astaPollingInterval) clearInterval(window.astaPollingInterval);
+                    console.warn(`[Polling Transizione V5.2] NUOVA ASTA IN ATTESA (ID: ${serverReportedAttesaId}) rilevata! Cambio target polling.`);
+                    if (window.astaPollingInterval) clearInterval(window.astaPollingInterval); window.astaPollingInterval = null;
                     resetInterfacciaPerNuovaAsta("Caricamento stato asta in attesa...");
                     idChiamataPerPolling = serverReportedAttesaId.toString();
+                     if (astaContainerEl) astaContainerEl.dataset.chiamataId = idChiamataPerPolling; // Aggiorna anche qui
                     startPollingAsta(idChiamataPerPolling);
                     return;
                 }
+                
+                aggiornaInterfacciaConDatiServer(data); // Aggiorna con i dati dell'asta corrente o richiesta
 
-                // Se non ci sono transizioni di target, aggiorna l'interfaccia con i dati ricevuti
-                aggiornaInterfacciaConDatiServer(data);
-
-                // Logica di finalizzazione se l'asta corrente (quella polata) scade
+                // Logica di finalizzazione migliorata: solo se stiamo pollando l'asta live CORRENTE
                 if (data.status === 'in_asta_tap_live' && data.chiamata_id === currentlyPollingIdNumeric &&
                     data.secondi_rimanenti !== undefined && data.secondi_rimanenti <= 0 && !astaFinalizzataClient) {
-                    console.log("[Polling Fetch V5] Asta corrente (ID:", currentlyPollingIdNumeric, ") live con tempo scaduto. Avvio finalizzazione client.");
+                    console.log("[Polling Fetch V5.2] Asta corrente (ID:", currentlyPollingIdNumeric, ") live con tempo scaduto (secondi_rimanenti <=0). Avvio finalizzazione client.");
                     astaFinalizzataClient = true;
-                    finalizzaAstaSulServer(currentlyPollingIdNumeric);
+                    finalizzaAstaSulServer(currentlyPollingIdNumeric); // Usa l'ID che stiamo pollando
                 }
-
-                // Se l'asta polata è conclusa e non c'è una nuova asta live o in attesa,
-                // passa a un polling di discovery.
+                
                 if (['conclusa_tap_assegnato', 'conclusa_tap_non_assegnato', 'annullata_admin', 'non_trovata'].includes(data.status) &&
-                    data.chiamata_id === currentlyPollingIdNumeric &&
+                    data.chiamata_id === currentlyPollingIdNumeric && // Solo se lo stato finale è per l'asta che stavamo pollando
                     !serverReportedLiveId && !serverReportedAttesaId) {
-                    if (window.astaPollingInterval) clearInterval(window.astaPollingInterval);
-                    console.log(`[Polling JS V5] Asta ${currentlyPollingIdNumeric} terminata. Avvio polling discovery (ID 0).`);
-                    idChiamataPerPolling = '0';
-                    startPollingAsta('0'); // Inizia a fare polling per scoprire nuove aste
+                    if (window.astaPollingInterval) clearInterval(window.astaPollingInterval); window.astaPollingInterval = null;
+                    console.log(`[Polling JS V5.2] Asta ${currentlyPollingIdNumeric} terminata. Avvio polling discovery (ID 0).`);
+                    idChiamataPerPolling = '0'; 
+                    if (astaContainerEl) astaContainerEl.dataset.chiamataId = ''; // Resetta anche il dataset
+                    startPollingAsta('0'); 
                 }
 
             })
             .catch(error => {
-                console.error('[Polling Fetch V5] Errore Catch:', error);
+                console.error('[Polling Fetch V5.2] Errore Catch:', error);
                 if (error.responseStatus === 404 && error.requestedId && parseInt(error.requestedId) !== 0) {
-                     aggiornaInterfacciaConDatiServer({ status: 'non_trovata', chiamata_id: error.requestedId, messaggio_esito: 'Asta (ID: '+error.requestedId+') non più disponibile.' });
-                } else if (error.requestedId === 0) { // Errore durante la discovery
-                    console.error('[Polling Fetch V5 - Discovery] Errore durante la discovery. Riprovo tra poco.');
-                    // Non cambiare UI drasticamente, il polling si riavvierà
+                     aggiornaInterfacciaConDatiServer({ status: 'non_trovata', chiamata_id: error.requestedId, messaggio_esito: 'Asta (ID: '+error.requestedId+') non più disponibile o terminata.', asta_live_corrente_id: null, asta_in_attesa_admin_id: null, dati_asta_in_attesa_admin: null });
+                } else if (error.requestedId === 0) { 
+                    console.error('[Polling Fetch V5.2 - Discovery] Errore durante la discovery. Riprovo tra poco.');
                 }
             });
     }
 
     function startPollingAsta(idCurrentAsta) {
         const idNumeric = idCurrentAsta ? parseInt(idCurrentAsta) : 0;
+         // Validazione dell'ID
+        if (isNaN(idNumeric)) {
+            console.error(`[Polling Start V5.2] Tentativo di avviare polling con ID non numerico: ${idCurrentAsta}. Interrotto.`);
+            if (window.astaPollingInterval) clearInterval(window.astaPollingInterval);
+            return;
+        }
+
 
         if (window.astaPollingInterval) { clearInterval(window.astaPollingInterval); window.astaPollingInterval = null; }
 
         idChiamataPerPolling = idNumeric.toString();
-        console.log('[Polling Start V5] Avvio/Riavvio per asta ID:', idChiamataPerPolling);
+        console.log('[Polling Start V5.2] Avvio/Riavvio per asta ID:', idChiamataPerPolling);
+        
+        // Aggiorna il dataset del container se l'asta non è per discovery
+        if (astaContainerEl && idChiamataPerPolling !== "0") {
+            astaContainerEl.dataset.chiamataId = idChiamataPerPolling;
+        } else if (astaContainerEl) {
+            astaContainerEl.dataset.chiamataId = ''; // Pulisci se discovery
+        }
 
-        fetchStatoAsta(idChiamataPerPolling);
+
+        fetchStatoAsta(idChiamataPerPolling); 
         window.astaPollingInterval = setInterval(function() {
-            if (idChiamataPerPolling === null || idChiamataPerPolling === undefined) { // Controllo più robusto
+            if (idChiamataPerPolling === null || idChiamataPerPolling === undefined) { 
                  if(window.astaPollingInterval) clearInterval(window.astaPollingInterval);
                  window.astaPollingInterval = null;
-                 console.log('[Polling Stop V5] idChiamataPerPolling è nullo, polling fermato.');
+                 console.log('[Polling Stop V5.2] idChiamataPerPolling è nullo, polling fermato.');
                  return;
             }
             fetchStatoAsta(idChiamataPerPolling);
-        }, 3000);
+        }, 3000); 
     }
 
     // --- Avvio Iniziale Logica ---
-    const initialAstaIdDaBlade = "{{ optional($chiamataDaMostrare)->id ?? '0' }}"; // Se non c'è nulla, usa '0' per discovery
-    const initialIsAstaLiveDaBlade = {{ (isset($chiamataDaMostrare) && $chiamataDaMostrare->stato_chiamata === 'in_asta_tap_live') ? 'true' : 'false' }};
-    const initialTimestampUnixDaBlade = "{{ $timestampFineInizialePerCountdown ?? '' }}";
-    const initialIsAstaInAttesaAdminDaBlade = {{ (isset($chiamataDaMostrare) && $chiamataDaMostrare->stato_chiamata === 'in_attesa_admin' && optional($impostazioniLega)->asta_tap_approvazione_admin) ? 'true' : 'false' }};
-    const initialCalciatoreNomeAttesaDaBlade = "{{ $initialDatiAstaInAttesa_calciatoreNome ?? '' }}";
-    const initialChiamanteNomeAttesaDaBlade = "{{ $initialDatiAstaInAttesa_chiamanteNome ?? '' }}";
+    const initialAstaIdDaBlade = '{{ $idChiamataInizialePerPolling ?? "0" }}';
+    const initialIsAstaLiveDaBlade = {{ $isAstaAttualmenteLive ? 'true' : 'false' }};
+    const initialTimestampUnixDaBlade = '{{ $timestampFineInizialePerCountdown ?? "" }}';
+    const initialIsAstaInAttesaAdminDaBlade = {{ isset($statoChiamataDaMostrare) && $statoChiamataDaMostrare === 'in_attesa_admin' && optional($impostazioniLega)->asta_tap_approvazione_admin ? 'true' : 'false' }};
 
-    console.log(`[JS Init Blade V5] ID Iniziale: ${initialAstaIdDaBlade}, Live?: ${initialIsAstaLiveDaBlade}, Attesa?: ${initialIsAstaInAttesaAdminDaBlade}, Timestamp: ${initialTimestampUnixDaBlade}`);
+    console.log(`[JS Init Blade V5.2] ID Iniziale: ${initialAstaIdDaBlade}, Live?: ${initialIsAstaLiveDaBlade}, Attesa?: ${initialIsAstaInAttesaAdminDaBlade}, TimestampUnixBlade: ${initialTimestampUnixDaBlade}`);
+    
+    // Imposta idChiamataPerPolling all'ID effettivo passato da Blade
+    idChiamataPerPolling = initialAstaIdDaBlade && initialAstaIdDaBlade !== "0" ? initialAstaIdDaBlade : "0";
+    if (astaContainerEl && idChiamataPerPolling !== "0") { // Aggiorna il dataset se abbiamo un ID specifico
+        astaContainerEl.dataset.chiamataId = idChiamataPerPolling;
+    }
 
-    // Indipendentemente dallo stato iniziale, avviamo il polling.
-    // Se c'è un ID specifico, polliamo per quello. Se è '0', il primo poll farà discovery.
-    startPollingAsta(initialAstaIdDaBlade);
 
-    // Se la pagina carica e sappiamo già che un'asta è live, avviamo il countdown.
-    // Se è in attesa, il primo poll con aggiornaInterfacciaConDatiServer mostrerà il messaggio corretto.
-    if (initialIsAstaLiveDaBlade && initialTimestampUnixDaBlade && initialTimestampUnixDaBlade !== 'ErroreParseTS') {
+    startPollingAsta(idChiamataPerPolling); // Avvia il polling con l'ID corretto
+
+    if (initialIsAstaLiveDaBlade && initialTimestampUnixDaBlade && initialTimestampUnixDaBlade !== 'ErroreParseTS' && initialTimestampUnixDaBlade !== '') {
         avviaOAggiornaCountdown(parseInt(initialTimestampUnixDaBlade));
-    } else if (initialIsAstaInAttesaAdminDaBlade) {
-        // Mostra il messaggio di attesa subito se i dati sono disponibili da PHP
-        if(testoPlaceholderNessunaAstaEl && nessunaAstaTapDivEl && !initialIsAstaLiveDaBlade) {
-            nessunaAstaTapDivEl.classList.remove('hidden');
-            if(astaContainerEl) astaContainerEl.classList.add('hidden');
-            let msgAttesa = `Calciatore <strong>${initialCalciatoreNomeAttesaDaBlade || 'Sconosciuto'}</strong> chiamato da <strong>${initialChiamanteNomeAttesaDaBlade || 'Squadra'}</strong>. In attesa di avvio da parte dell'admin.`;
-            testoPlaceholderNessunaAstaEl.innerHTML = `<div class="p-4 bg-blue-100 dark:bg-blue-800 border-l-4 border-blue-500 dark:border-blue-400 text-blue-700 dark:text-blue-200 rounded-md">${msgAttesa}</div>`;
-            if (linkVaiAChiamataPlaceholderEl) linkVaiAChiamataPlaceholderEl.style.display = 'none';
-         }
-    } else if (countdownElement && !initialIsAstaLiveDaBlade) { // Se non è live e non in attesa, ma c'è un ID valido (es. asta conclusa)
+    } else if (countdownElement && !initialIsAstaLiveDaBlade && (!document.querySelector('#messaggi-globali-asta .rounded-lg'))) { // Solo se non ci sono messaggi di esito
         countdownElement.textContent = "ASTA NON ATTIVA";
-    } else if (!initialAstaIdDaBlade || initialAstaIdDaBlade === '0') { // Se non c'è proprio nessun ID di riferimento
+    } else if (idChiamataPerPolling === '0' && !initialIsAstaInAttesaAdminDaBlade && !document.querySelector('#messaggi-globali-asta .rounded-lg')) {
         resetInterfacciaPerNuovaAsta("Nessuna asta TAP attiva o in attesa. In attesa di aggiornamenti...");
     }
 });
