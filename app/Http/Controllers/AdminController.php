@@ -94,10 +94,25 @@ class AdminController extends Controller
     
     public function users(Request $request)
     {
-        $utenti = User::orderBy('ordine_chiamata', 'asc')->orderBy('name', 'asc')->paginate(15);
+        $impostazioni = ImpostazioneLega::first();
+        $ordinePersonalizzato = $impostazioni ? $impostazioni->ordine_squadre_personalizzato : [];
+        
+        $query = User::query();
+        
+        // Se esiste un ordine personalizzato, lo usiamo per ordinare
+        if (!empty($ordinePersonalizzato)) {
+            // Converte l'array di ID in una stringa per la clausola FIELD di MySQL
+            $ordineIdsString = implode(',', array_map('intval', $ordinePersonalizzato));
+            $query->orderByRaw("FIELD(id, $ordineIdsString)");
+        }
+        
+        // Aggiungiamo un ordinamento per nome come fallback
+        $query->orderBy('name', 'asc');
+        
+        $utenti = $query->paginate(15);
+        
         return view('admin.utenti.index', compact('utenti'));
     }
-    
     public function editUser(User $user)
     {
         return view('admin.utenti.edit', compact('user'));
@@ -124,8 +139,7 @@ class AdminController extends Controller
             'crediti_rimanenti' => $validatedData['crediti_rimanenti'],
             'is_admin' => $request->boolean('is_admin'),
             'nome_proprietario' => $validatedData['nome_proprietario'],
-            'phone_number' => $validatedData['phone_number'],
-            'ordine_chiamata' => $validatedData['ordine_chiamata'],
+            'phone_number' => $validatedData['phone_number']
         ];
         
         if ($request->filled('password')) {

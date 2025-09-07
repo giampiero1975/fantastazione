@@ -106,8 +106,22 @@
                 // Potresti anche usare $numeroWhatsAppFinal se vuoi la stessa logica di pulizia,
                 // ma l'URL sms: a volte preferisce il +
 
-                $testoBaseMessaggio = "Ciao " . $nomeSalutare . "! Puoi accedere alla tua squadra Fantastazione (" . $utente->name . ") su " . route('login') . " con la tua email: {$utente->email}. Se hai bisogno di impostare/resettare la password, usa l'opzione 'Password dimenticata?' sulla pagina di login.";
-                
+				// Genera l'URL una sola volta per pulizia
+				$loginUrl = route('login');
+
+				// Crea il tag HTML per il link
+				$linkLogin = '<a href="' . $loginUrl . '">' . $loginUrl . '</a>';
+
+                //$testoBaseMessaggio = "Ciao " . $nomeSalutare . "! Puoi accedere alla tua squadra Fantastazione (" . $utente->name . ") su " . route('login') . " con la tua email: {$utente->email}. Se hai bisogno di impostare/resettare la password, usa l'opzione 'Password dimenticata?' sulla pagina di login.";
+				//$testoBaseMessaggio = "Ciao " . $nomeSalutare . "! Puoi accedere alla tua squadra Fantastazione (" . $utente->name . ") su " . route('login') . " con:\nemail: {$utente->email}\npassword:fantastazione\n\nSe hai bisogno di impostare/resettare la password, usa l'opzione 'Password dimenticata?' sulla pagina di login.";
+				
+				// Costruisci il messaggio usando il link HTML
+				$testoBaseMessaggio="Ciao " . $nomeSalutare . "!\n\n" .
+                      				"Puoi accedere alla tua squadra Fantastazione (" . $utente->name . ") su " . $linkLogin . " con:\n" .
+                      				"Email: {$utente->email}\n" .
+                      				"Password: Fantastazione\n\n" .
+                      				"Se hai bisogno di impostare/resettare la password, usa l'opzione 'Password dimenticata?' sulla pagina di login.";
+                                    
                 $testoMessaggioWhatsApp = urlencode($testoBaseMessaggio);
                 $testoMessaggioSMS = rawurlencode($testoBaseMessaggio); // rawurlencode è più sicuro per SMS
             @endphp

@@ -38,7 +38,25 @@
                         </div>
                     @endif --}}
 
+<div class="alert alert-warning p-3 mb-4" role="alert">
+  {{-- Titolo dell'avviso --}}
+  <h4 class="alert-heading">
+    ⚠️ Attenzione al Formato del File!
+  </h4>
 
+  {{-- Spiegazione del problema --}}
+  <p>
+    Per evitare errori con i caratteri speciali (come <strong>è, à, ò, ù</strong>), il file CSV deve essere salvato da Excel con la codifica corretta.
+  </p>
+
+  <hr>
+
+  {{-- Istruzioni precise --}}
+  <p class="mb-0">
+    Segui questi passaggi in Excel: <br>
+    <strong>File > Salva con nome > Dal menu a tendina "Salva come", scegli "CSV UTF-8 (Delimitato da virgole) (*.csv)"</strong>.
+  </p>
+</div>
                     <p class="mb-4 text-sm text-gray-600">
                         Carica il file CSV delle quotazioni. La stagione/tag e lo stato attivo/ceduto verranno determinati automaticamente dal nome del file (es. "Quotazioni_Fantacalcio_Stagione_2024_25.xlsx - Tutti.csv").
                     </p>

@@ -26,105 +26,100 @@ class GiocatoreImportController extends Controller
      */
     public function handleImport(Request $request)
     {
-        // 1. Validazione (solo file CSV)
-        $request->validate([
-            'csv_file' => ['required', 'file', 'mimes:csv,txt'],
-        ]);
+        $request->validate(['csv_file' => ['required', 'file', 'mimes:csv,txt']]);
         
         $file = $request->file('csv_file');
         $filename = $file->getClientOriginalName();
         $tag_lista = null;
-        $isAttivo = true; // Default a true
+        $isAttivo = true;
         $importedCount = 0;
         $errors = [];
         
         try {
-            // 2. Estrai il tag/stagione e lo stato attivo dal nome del file
             if (preg_match('/Stagione_(\d{4}(?:_\d{2})?)/i', $filename, $matches)) {
-                $tag_lista = 'Stagione_' . $matches[1]; // Es. "Stagione_2024_25"
+                $tag_lista = 'Stagione_' . $matches[1];
             } else {
-                throw new Exception("Impossibile determinare la stagione/tag dal nome del file: $filename. Assicurati che contenga 'Stagione_YYYY_YY' o 'Stagione_YYYY'.");
+                throw new Exception("Impossibile determinare la stagione/tag dal nome del file: $filename.");
             }
             
             if (str_contains(strtolower($filename), 'ceduti')) {
                 $isAttivo = false;
             }
             
-            // 3. Processa il CSV usando league/csv
-            $csv = Reader::createFromPath($file->getPathname(), 'r');
-            // !! VERIFICA IL DELIMITATORE DEL TUO FILE CSV !! (;)
+            $fileContent = file_get_contents($file->getRealPath());
+            
+            // Manteniamo la funzione di sostituzione che sappiamo funzionare in PHP
+            $caratteriErrati = ["\x95", "\x8D", "\x8A", "\x92", "\xe0", "\xe8", "\xe9", "\xec", "\xf2", "\xf9", "\xc0", "\xc8", "\xc9", "\xcc", "\xd2", "\xd9", "\xe4", "\xf6", "\xfc", "\xc4", "\xd6", "\xdc", "\xdf", "\xe7", "\xc7", "\xf1", "\xd1", "\xe2", "\xea", "\xee", "\xf4", "\xc2", "\xca", "\xce", "\xd4", "\xeb", "\xef", "\xe5", "\xc5", "\xe6", "\xc6", "\xf8", "\xd8", "\xff", "\x9F"];
+            $caratteriCorretti = ["ò", "í", "é", "'", "à", "è", "é", "ì", "ò", "ù", "À", "È", "É", "Ì", "Ò", "Ù", "ä", "ö", "ü", "Ä", "Ö", "Ü", "ß", "ç", "Ç", "ñ", "Ñ", "â", "ê", "î", "ô", "Â", "Ê", "Î", "Ô", "ë", "ï", "å", "Å", "æ", "Æ", "ø", "Ø", "ÿ", "Ÿ"];
+            $fileContent = str_replace($caratteriErrati, $caratteriCorretti, $fileContent);
+            
+            $csv = Reader::createFromString($fileContent);
             $csv->setDelimiter(';');
             $csv->setHeaderOffset(0);
             
-            $stmt = Statement::create();
-            $records = $stmt->process($csv);
-            
-            // Opzionale: Inizia una transazione DB
-            // DB::beginTransaction();
+            $records = Statement::create()->process($csv);
             
             foreach ($records as $index => $record) {
-                $rowNumber = $index + 1;
+                $rowNumber = $index + 2;
                 try {
-                    // 4. Estrai e pulisci i dati CORREGGENDO LE CHIAVI
-                    $idEsterno = trim($record['Id'] ?? null); // Chiave corretta: 'Id' (con 'd' minuscola)
-                    $ruolo = strtoupper(trim($record['R'] ?? null)); // Chiave corretta: 'R' (senza punto)
+                    $idEsterno = trim($record['Id'] ?? null);
+                    $ruolo = strtoupper(trim($record['R'] ?? null));
                     $nome = trim($record['Nome'] ?? null);
                     $squadra = trim($record['Squadra'] ?? null);
-                    $qtIniziale = (int) preg_replace('/[^0-9]/', '', $record['Qt.I'] ?? 0); // Chiave corretta: 'Qt.I' (senza spazio)
-                    $qtAttuale = (int) preg_replace('/[^0-9]/', '', $record['Qt.A'] ?? 0);  // Chiave corretta: 'Qt.A' (senza spazio)
+                    $qtIniziale = (int) preg_replace('/[^0-9]/', '', $record['Qt.I'] ?? 0);
+                    $qtAttuale = (int) preg_replace('/[^0-9]/', '', $record['Qt.A'] ?? 0);
                     
-                    // 5. Validazione dati riga (Esempio base)
-                    if (empty($idEsterno) || empty($nome) || empty($ruolo) || empty($squadra) || !in_array($ruolo, ['P', 'D', 'C', 'A'])) {
-                        throw new Exception("Dati mancanti o ruolo non valido ('$ruolo') per IdEsterno '$idEsterno' e Nome '$nome' alla riga $rowNumber");
+                    if (empty($idEsterno) || empty($nome)) {
+                        throw new Exception("Dati 'Id' o 'Nome' mancanti.");
                     }
                     
-                    // 6. Crea o aggiorna il record nel database
-                    Calciatore::updateOrCreate(
-                        [
-                            'id_esterno_giocatore' => $idEsterno,
-                            'tag_lista_inserimento' => $tag_lista,
-                        ],
-                        [
-                            'nome_completo' => $nome,
-                            'ruolo' => $ruolo,
-                            'squadra_serie_a' => $squadra,
-                            'quotazione_iniziale' => $qtIniziale,
-                            'quotazione_attuale' => $qtAttuale,
-                            'attivo' => $isAttivo,
-                        ]
-                        );
+                    // ==================== QUERY GREZZA (ULTIMA PROVA) ====================
+                    // Invece di usare Eloquent, scriviamo la query a mano.
+                    // Questo bypassa ogni possibile "magia" o bug di Laravel/Eloquent.
+                    $sql = "
+                    INSERT INTO calciatori (
+                        id_esterno_giocatore, tag_lista_inserimento, nome_completo, ruolo,
+                        squadra_serie_a, quotazione_iniziale, quotazione_attuale, attivo,
+                        created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+                    ON DUPLICATE KEY UPDATE
+                        nome_completo = VALUES(nome_completo),
+                        ruolo = VALUES(ruolo),
+                        squadra_serie_a = VALUES(squadra_serie_a),
+                        quotazione_iniziale = VALUES(quotazione_iniziale),
+                        quotazione_attuale = VALUES(quotazione_attuale),
+                        attivo = VALUES(attivo),
+                        updated_at = NOW()
+                ";
+                    
+                    $bindings = [
+                        $idEsterno, $tag_lista, $nome, $ruolo, $squadra,
+                        $qtIniziale, $qtAttuale, $isAttivo
+                    ];
+                    
+                    // Eseguiamo la query usando il metodo di base di Laravel
+                    DB::statement($sql, $bindings);
+                    // ====================================================================
+                    
                     $importedCount++;
                     
                 } catch (Exception $e) {
                     $errorMessage = "Errore alla riga $rowNumber: " . $e->getMessage();
                     $errors[] = $errorMessage;
                     Log::error("Errore import CSV ($filename): " . $errorMessage);
-                    // Considera se interrompere o continuare qui
                 }
-            } // Fine foreach
-            
-            // Opzionale: Conferma la transazione DB
-            // DB::commit();
-            
-            // 7. Prepara messaggio e aggregato
-            $message = "Importazione per '$tag_lista' completata. $importedCount giocatori importati/aggiornati.";
-            if (!empty($errors)) {
-                $message .= " Si sono verificati " . count($errors) . " errori (controlla i log per dettagli).";
             }
             
-            $activePlayerCount = Calciatore::where('tag_lista_inserimento', $tag_lista)->where('attivo', true)->count();
-            $aggregateMessage = "Tag '$tag_lista': $activePlayerCount calciatori attivi.";
+            $message = "Importazione completata. $importedCount giocatori importati/aggiornati.";
+            if (!empty($errors)) {
+                $message .= " Si sono verificati " . count($errors) . " errori.";
+            }
             
-            return redirect()->route('admin.giocatori.import.show')
-            ->with('success', $message)
-            ->with('aggregate', $aggregateMessage); // Potresti passare anche ->with('import_errors', $errors) se vuoi mostrarli
+            return redirect()->route('admin.giocatori.import.show')->with('success', $message);
             
         } catch (Exception $e) {
-            // Opzionale: Annulla transazione
-            // DB::rollBack();
             Log::error("Errore generale import CSV ($filename): " . $e->getMessage());
-            return redirect()->route('admin.giocatori.import.show')
-            ->with('error', 'Errore durante l\'importazione: ' . $e->getMessage());
+            return redirect()->route('admin.giocatori.import.show')->with('error', 'Errore: ' . $e->getMessage());
         }
     }
     
