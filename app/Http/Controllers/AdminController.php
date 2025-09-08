@@ -1093,7 +1093,7 @@ class AdminController extends Controller
                 'password' => Hash::make($validatedData['password']),
                 'crediti_iniziali_squadra' => $validatedData['crediti_iniziali_squadra'],
                 'crediti_rimanenti' => $validatedData['crediti_iniziali_squadra'], // Inizialmente i crediti rimanenti sono uguali a quelli iniziali
-                'ordine_chiamata' => ($validatedData['ordine_chiamata'] === '' || $validatedData['ordine_chiamata'] === null) ? null : (int)$validatedData['ordine_chiamata'],
+                //'ordine_chiamata' => ($validatedData['ordine_chiamata'] === '' || $validatedData['ordine_chiamata'] === null) ? null : (int)$validatedData['ordine_chiamata'],
                 'is_admin' => false, // Le squadre create da qui di default NON sono admin
                 'email_verified_at' => now(), // Opzionale: puoi decidere se verificarle subito o meno
             ]);
