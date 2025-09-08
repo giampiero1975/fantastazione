@@ -212,7 +212,7 @@ class AdminController extends Controller
         // Squadre da mostrare nella sezione per definire l'ordine di chiamata.
         // Ora l'ordine è determinato da `ordine_squadre_personalizzato`, quindi recuperiamo tutte le squadre
         // e poi la vista si occuperà di mostrare l'ordine attuale basato su quell'array.
-        $tutteLeSquadre = User::orderBy('name', 'asc')->get(['id', 'name', 'is_admin']);
+        $tutteLeSquadre = User::orderBy('id', 'asc')->get(['id', 'name', 'is_admin']);
         $squadrePerOrdinamento = collect(); // Inizializza come collection vuota
         
         $ordineSalvato = $impostazioni->ordine_squadre_personalizzato; // Questo è un array di ID utente

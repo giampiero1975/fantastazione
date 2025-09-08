@@ -1,159 +1,147 @@
 <x-app-layout>
     <x-slot name="header">
         <h2 class="font-semibold text-xl text-gray-800 dark:text-gray-200 leading-tight">
-            {{ __('Calciatori Disponibili per l\'Asta') }}
-            <span class="text-base text-indigo-600 dark:text-indigo-400 ml-2">
-                (Fase: {{ $faseAstaCorrente ?? 'N/D' }}
-                @if(isset($tagListaAttiva) && $tagListaAttiva)
-                    - Lista: {{ $tagListaAttiva }}
-                @endif
-                )
-            </span>
+            {{ __('Calciatori Disponibili') }}
         </h2>
     </x-slot>
 
     <div class="py-12">
         <div class="max-w-7xl mx-auto sm:px-6 lg:px-8">
+            <div class="bg-white dark:bg-gray-800 overflow-hidden shadow-sm sm:rounded-lg">
+                <div class="p-6 text-gray-900 dark:text-gray-100">
+                    <h1 class="text-2xl font-bold mb-4">
+                        Lista Calciatori Svincolati
+                        @if ($impostazioniLega->tag_lista_attiva)
+                            <span class="text-lg font-normal text-gray-500 dark:text-gray-400">(Tag Lista: {{ $impostazioniLega->tag_lista_attiva }})</span>
+                        @endif
+                    </h1>
 
-            {{-- Blocco Standard per Messaggi Flash --}}
-            <div class="mb-6"> {{-- Contenitore per i messaggi così sono raggruppati --}}
-                @if (session('success'))
-                    <div class="p-4 font-medium text-sm text-green-700 bg-green-100 dark:bg-green-800 dark:text-green-200 rounded-md">
-                        {{ session('success') }}
-                    </div>
-                @endif
-                @if (session('error'))
-                    <div class="p-4 font-medium text-sm text-red-700 bg-red-100 dark:bg-red-800 dark:text-red-200 rounded-md">
-                        {{ session('error') }}
-                    </div>
-                @endif
-                {{-- Puoi aggiungere qui anche il blocco per $errors->any() se lo usi per errori di validazione del form --}}
-                @if ($errors->any())
-                    <div class="mt-2 p-4 font-medium text-sm text-red-700 bg-red-100 dark:bg-red-800 dark:text-red-200 rounded-md">
-                        <strong>{{ __('Attenzione!') }}</strong>
-                        <ul class="list-disc list-inside mt-1">
-                            @foreach ($errors->all() as $error)
-                                <li>{{ $error }}</li>
-                            @endforeach
-                        </ul>
-                    </div>
-                @endif
-            </div>
-
-            {{-- Messaggio specifico dal controller (es. asta non in fase corretta) --}}
-            @if (isset($messaggio) && $messaggio)
-                <div class="bg-yellow-100 dark:bg-yellow-800 border-l-4 border-yellow-500 dark:border-yellow-400 text-yellow-700 dark:text-yellow-200 p-4 mb-6 shadow-sm sm:rounded-lg" role="alert">
-                    <p class="font-bold">{{ __('Attenzione') }}</p>
-                    <p>{{ $messaggio }}</p>
-                </div>
-            @endif
-
-            {{-- Form Filtri e Tabella Calciatori (solo se non c'è un messaggio di blocco e ci sono calciatori) --}}
-            @if (!isset($messaggio) && isset($calciatori) && $calciatori->isNotEmpty())
-                <div class="bg-white dark:bg-gray-800 overflow-hidden shadow-sm sm:rounded-lg p-4 mb-6">
-                    <form method="GET" action="{{ route('asta.calciatori.disponibili') }}" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 items-end">
-                        <div>
-                            <x-input-label for="nome_calciatore_search" :value="__('Cerca Nome')" />
-                            <x-text-input id="nome_calciatore_search" name="nome_calciatore_search" type="text" class="mt-1 block w-full" :value="request('nome_calciatore_search')" placeholder="Es. Rossi" />
-                        </div>
-                        <div>
-                            <x-input-label for="squadra_serie_a_search" :value="__('Squadra Serie A')" />
-                             <select name="squadra_serie_a_search" id="squadra_serie_a_search" class="block mt-1 w-full border-gray-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 focus:border-indigo-500 dark:focus:border-indigo-600 focus:ring-indigo-500 dark:focus:ring-indigo-600 rounded-md shadow-sm">
-                                <option value="">{{ __('Tutte le squadre') }}</option>
-                                @if(isset($squadreSerieAUniche))
-                                    @foreach ($squadreSerieAUniche as $squadra)
-                                        <option value="{{ $squadra }}" {{ request('squadra_serie_a_search') == $squadra ? 'selected' : '' }}>{{ $squadra }}</option>
+                    <div class="mb-4 bg-gray-50 dark:bg-gray-700 p-4 rounded-lg shadow-inner">
+                        <form id="filter-form" action="{{ route('asta.calciatori.disponibili') }}" method="GET" class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div>
+                                <label for="q" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Cerca per Nome o Squadra</label>
+                                <input type="text" name="q" id="q" value="{{ request('q') }}" placeholder="Es: Martinez o Inter" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50 dark:bg-gray-600 dark:border-gray-500 dark:text-gray-300">
+                            </div>
+                            <div>
+                                <label for="ruolo" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Filtra per Ruolo</label>
+                                <select name="ruolo" id="ruolo" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50 dark:bg-gray-600 dark:border-gray-500 dark:text-gray-300">
+                                    <option value="">Tutti i Ruoli</option>
+                                    @foreach ($ruoliDisponibili as $ruolo)
+                                        <option value="{{ $ruolo }}" @if(request('ruolo') == $ruolo) selected @endif>{{ $ruolo }}</option>
                                     @endforeach
-                                @endif
-                            </select>
-                        </div>
-                        <div class="flex items-center pt-5"> {{-- Allineamento verticale per i pulsanti --}}
-                            <x-primary-button type="submit">
-                                {{ __('Filtra') }}
-                            </x-primary-button>
-                            <a href="{{ route('asta.calciatori.disponibili') }}" class="ms-3 inline-flex items-center px-4 py-2 bg-gray-200 dark:bg-gray-700 border border-transparent rounded-md font-semibold text-xs text-gray-700 dark:text-gray-300 uppercase tracking-widest hover:bg-gray-300 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800 transition ease-in-out duration-150">
-                                Reset
-                            </a>
-                        </div>
-                    </form>
-                </div>
-
-                <div class="bg-white dark:bg-gray-800 overflow-hidden shadow-sm sm:rounded-lg">
-                    <div class="p-6 text-gray-900 dark:text-gray-100">
-                        <div class="overflow-x-auto">
+                                </select>
+                            </div>
+                        </form>
+                    </div>
+                    <div id="calciatori-list">
+                        <div class="overflow-x-auto bg-white dark:bg-gray-800 rounded-lg shadow">
                             <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                                 <thead class="bg-gray-50 dark:bg-gray-700">
                                     <tr>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">{{ __('Nome') }}</th>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">{{ __('R.') }}</th>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">{{ __('Squadra') }}</th>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">{{ __('Qt.I.') }}</th>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">{{ __('Azione') }}</th>
+                                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Calciatore</th>
+                                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Club</th>
+                                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Qt. I.</th>
+                                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Azione</th>
                                     </tr>
                                 </thead>
                                 <tbody class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                                    @foreach ($calciatori as $calciatore)
+                                    @forelse ($calciatori as $calciatore)
                                         <tr>
-                                            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-gray-100">{{ $calciatore->nome_completo }}</td>
-                                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{{ $calciatore->ruolo }}</td>
+                                            <td class="px-6 py-4 whitespace-nowrap">
+                                                <div class="flex items-center">
+                                                    <div class="font-bold text-xl text-gray-900 dark:text-white">{{ $calciatore->ruolo }}</div>
+                                                    <div class="ml-4">
+                                                        <div class="text-sm font-medium text-gray-900 dark:text-white">{{ $calciatore->nome_completo }}</div>
+                                                    </div>
+                                                </div>
+                                            </td>
                                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{{ $calciatore->squadra_serie_a }}</td>
                                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{{ $calciatore->quotazione_iniziale }}</td>
                                             <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                                                @if(isset($impostazioniLega) && $impostazioniLega->modalita_asta === 'tap' && in_array($impostazioniLega->fase_asta_corrente, ['P','D','C','A']))
-                                                    <form method="POST" action="{{ route('asta.registra.chiamata', $calciatore->id) }}">
+                                                @if ($impostazioniLega->modalita_asta === 'tap')
+                                                    <form action="{{ route('asta.registra.chiamata', $calciatore->id) }}" method="POST">
                                                         @csrf
-                                                        @php
-                                                            // La variabile $chiamataTapPossibile deve essere passata dal controller
-                                                            // Determina se il pulsante deve essere disabilitato
-                                                            $isButtonDisabled = !(isset($chiamataTapPossibile) && $chiamataTapPossibile);
-                                                            $buttonTitle = $isButtonDisabled
-                                                                ? __('C\'è già un giocatore chiamato o un\'asta TAP in corso, oppure la chiamata non è permessa.')
-                                                                : __('Chiama questo giocatore per l\'asta TAP');
-                                                        @endphp
-                                                        <button type="submit" class="inline-flex items-center px-4 py-2 bg-green-500 border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-green-600 active:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800 transition ease-in-out duration-150 {{ $isButtonDisabled ? 'opacity-50 cursor-not-allowed' : '' }}"
-                                                            {{ $isButtonDisabled ? 'disabled' : '' }}
-                                                            title="{{ $buttonTitle }}">
-                                                            {{ __('Chiama per Asta TAP') }}
+                                                        <button type="submit" class="px-4 py-2 bg-green-600 text-white text-xs font-semibold rounded hover:bg-green-700">
+                                                            Chiama
                                                         </button>
                                                     </form>
-                                                @elseif(isset($impostazioniLega) && $impostazioniLega->modalita_asta === 'voce' && in_array($impostazioniLega->fase_asta_corrente, ['P','D','C','A']))
-                                                    <span class="text-xs text-gray-500 dark:text-gray-400 italic">
-                                                        {{ __('Asta a Voce') }}
-                                                    </span>
                                                 @else
-                                                    {{-- Caso in cui l'asta non è in fase P,D,C,A o modalità non TAP --}}
-                                                    <span class="text-xs text-gray-400 dark:text-gray-500">-</span>
+                                                    <span class="text-xs text-gray-400">Voce</span>
                                                 @endif
                                             </td>
                                         </tr>
-                                    @endforeach
+                                    @empty
+                                        <tr>
+                                            <td colspan="4" class="px-6 py-4 whitespace-nowrap text-center text-sm text-gray-500 dark:text-gray-400">
+                                                Nessun calciatore trovato con i criteri di ricerca.
+                                            </td>
+                                        </tr>
+                                    @endforelse
                                 </tbody>
                             </table>
                         </div>
+
                         <div class="mt-4">
                             {{ $calciatori->appends(request()->query())->links() }}
                         </div>
                     </div>
-                </div>
-            {{-- Messaggio se non ci sono giocatori da mostrare (e non c'è un messaggio di blocco prioritario) --}}
-            @elseif (!isset($messaggio) && isset($calciatori) && $calciatori->isEmpty())
-                <div class="bg-white dark:bg-gray-800 overflow-hidden shadow-sm sm:rounded-lg">
-                    <div class="p-6 text-gray-900 dark:text-gray-100">
-                        {{ __('Nessun calciatore disponibile per la fase attuale') }} ({{ $faseAstaCorrente ?? 'N/D' }}) {{ __('o per la lista giocatori') }} "{{ $tagListaAttiva ?? 'N/D' }}" {{ __('che corrisponda ai filtri applicati, oppure sono già stati tutti acquistati.') }}
                     </div>
-                </div>
-            @endif
-
-            <div class="mt-6 text-center">
-                <a href="{{ route('dashboard') }}" class="text-indigo-600 dark:text-indigo-400 hover:underline">
-                    &larr; {{ __('Torna alla Dashboard Squadra') }}
-                </a>
-                 @if(isset($impostazioniLega) && $impostazioniLega->modalita_asta === 'tap')
-                <a href="{{ route('asta.live') }}" class="ml-4 text-green-600 dark:text-green-400 hover:underline font-semibold">
-                    {{ __('Vai all\'Asta Live') }} &rarr;
-                </a>
-                @endif
             </div>
         </div>
     </div>
+
+    @push('scripts')
+    <script>
+        // Questo script è opzionale ma rende l'esperienza più fluida.
+        // Se lo rimuovi, il form funzionerà comunque con un ricaricamento completo della pagina.
+        document.addEventListener('DOMContentLoaded', function () {
+            const form = document.getElementById('filter-form');
+            const searchInput = document.getElementById('q');
+            const roleSelect = document.getElementById('ruolo');
+            let debounceTimer;
+
+            function fetchCalciatori(page = 1) {
+                const query = new URLSearchParams(new FormData(form)).toString();
+                const url = `{{ route('asta.calciatori.disponibili') }}?${query}&page=${page}`;
+
+                fetch(url, {
+                    headers: {
+                        'X-Requested-With': 'XMLHttpRequest'
+                    }
+                })
+                .then(response => response.text())
+                .then(html => {
+                    document.getElementById('calciatori-list').innerHTML = html;
+                    // Aggiorna l'URL del browser senza ricaricare la pagina
+                    window.history.pushState({}, '', url);
+                })
+                .catch(error => console.error('Errore durante il fetch:', error));
+            }
+
+            function debounceFetch() {
+                clearTimeout(debounceTimer);
+                debounceTimer = setTimeout(() => {
+                    fetchCalciatori(1);
+                }, 300);
+            }
+
+            searchInput.addEventListener('keyup', debounceFetch);
+            roleSelect.addEventListener('change', debounceFetch);
+
+            document.addEventListener('click', function(e) {
+                if (e.target.matches('#calciatori-list .pagination a')) {
+                    e.preventDefault();
+                    const pageUrl = new URL(e.target.href);
+                    const page = pageUrl.searchParams.get('page');
+                    fetchCalciatori(page);
+                }
+            });
+
+            form.addEventListener('submit', function (e) {
+                e.preventDefault();
+                fetchCalciatori(1);
+            });
+        });
+    </script>
+    @endpush
 </x-app-layout>

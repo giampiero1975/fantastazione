@@ -16,8 +16,6 @@ use Exception;
 // use Illuminate\Validation\Rule; // Potrebbe servire per validazioni più complesse
 class AstaController extends Controller
 {
-    // ... (altri metodi come dashboard, mostraCalciatoriDisponibili, registraChiamata, gestisciRilancioTap, statoAstaTap) ...
-        
     /**
      * Gestisce la visualizzazione della dashboard (smista tra admin e squadra).
      */
@@ -118,82 +116,63 @@ class AstaController extends Controller
      */
     public function mostraCalciatoriDisponibili(Request $request)
     {
-        $user = Auth::user();
-        $impostazioniLega = ImpostazioneLega::firstOrFail(); // Assume che le impostazioni esistano sempre qui
-        $faseAstaCorrente = $impostazioniLega->fase_asta_corrente;
-        $tagListaAttiva = $impostazioniLega->tag_lista_attiva;
+        $impostazioniLega = ImpostazioneLega::firstOrFail();
+        $tagAttivo = $impostazioniLega->tag_lista_attiva;
         
-        $calciatori = collect();
-        $messaggio = null;
-        $squadreSerieAUniche = collect();
-        $chiamataTapPossibile = false;
-        $prossimoChiamanteInfo = null;
+        $idsCalciatoriGiaAcquistati = GiocatoreAcquistato::query()
+        ->when($tagAttivo, function ($query) use ($tagAttivo) {
+            $query->whereHas('calciatore', function($q) use ($tagAttivo) {
+                $q->where('tag_lista_inserimento', $tagAttivo);
+            });
+        })
+        ->pluck('calciatore_id')->all();
         
+        $query = Calciatore::where('attivo', true)
+        ->whereNotIn('id', $idsCalciatoriGiaAcquistati);
         
-        if (!in_array($faseAstaCorrente, ['P', 'D', 'C', 'A']) || !$tagListaAttiva) {
-            if (!in_array($faseAstaCorrente, ['P', 'D', 'C', 'A'])) {
-                $messaggio = "L'asta è in fase: {$faseAstaCorrente}. Non è possibile visualizzare giocatori per la chiamata.";
-            } elseif (!$tagListaAttiva) {
-                $messaggio = "Nessuna lista giocatori attiva definita dall'admin per l'asta.";
-            }
-        } else {
-            $query = Calciatore::where('attivo', true)
-            ->where('tag_lista_inserimento', $tagListaAttiva)
-            ->where('ruolo', $faseAstaCorrente);
-            
-            $idsCalciatoriAcquistatiQuery = GiocatoreAcquistato::query();
-            if ($tagListaAttiva) {
-                $idsCalciatoriAcquistatiQuery->whereHas('calciatore', function ($q) use ($tagListaAttiva) {
-                    $q->where('tag_lista_inserimento', $tagListaAttiva);
-                });
-            }
-            $idsCalciatoriAcquistati = $idsCalciatoriAcquistatiQuery->pluck('calciatore_id')->all();
-            
-            if (!empty($idsCalciatoriAcquistati)) {
-                $query->whereNotIn('id', $idsCalciatoriAcquistati);
-            }
-            
-            if ($request->filled('nome_calciatore_search')) {
-                $query->where('nome_completo', 'like', '%' . $request->input('nome_calciatore_search') . '%');
-            }
-            if ($request->filled('squadra_serie_a_search')) {
-                $query->where('squadra_serie_a', 'like', '%' . $request->input('squadra_serie_a_search') . '%');
-            }
-            
-            $calciatori = $query->orderBy('nome_completo')->paginate(20);
-            
-            $queryBaseFiltri = Calciatore::where('attivo', true)
-            ->where('tag_lista_inserimento', $tagListaAttiva)
-            ->where('ruolo', $faseAstaCorrente);
-            if (!empty($idsCalciatoriAcquistati)) {
-                $queryBaseFiltri->whereNotIn('id', $idsCalciatoriAcquistati);
-            }
-            $squadreSerieAUniche = (clone $queryBaseFiltri)->select('squadra_serie_a')->distinct()->orderBy('squadra_serie_a')->pluck('squadra_serie_a');
-            
-            if ($impostazioniLega->modalita_asta === 'tap') {
-                $astaInCorso = ChiamataAsta::whereIn('stato_chiamata', ['in_attesa_admin', 'in_asta_tap_live'])
-                // ->where('tag_lista_calciatori', $tagListaAttiva) // Opzionale, se le chiamate sono taggate
-                ->exists();
-                $chiamataTapPossibile = !$astaInCorso;
-                
-                if ($chiamataTapPossibile && $impostazioniLega->usa_ordine_chiamata) {
-                    if (Auth::id() != $impostazioniLega->prossimo_turno_chiamata_user_id) {
-                        $chiamataTapPossibile = false;
-                        $prossimoChiamante = User::find($impostazioniLega->prossimo_turno_chiamata_user_id);
-                        $prossimoChiamanteInfo = $prossimoChiamante ? $prossimoChiamante->name : 'Non definito';
-                        $messaggio = ($messaggio ? $messaggio . ' ' : ''); // Concatena se già esiste un messaggio
-                        $messaggio .= 'Non è il tuo turno di chiamata. Prossimo a chiamare: ' . $prossimoChiamanteInfo;
-                    }
-                }
-            }
+        if ($tagAttivo) {
+            $query->where('tag_lista_inserimento', $tagAttivo);
         }
         
+        // --- QUESTA È LA LOGICA MANCANTE ---
+        if ($request->filled('ruolo')) {
+            $query->where('ruolo', $request->input('ruolo'));
+        }
+        
+        if ($request->filled('q')) {
+            $searchTerm = strtolower($request->input('q'));
+            $query->where(function ($q) use ($searchTerm) {
+                $q->whereRaw('LOWER(nome_completo) LIKE ?', ["%{$searchTerm}%"])
+                ->orWhereRaw('LOWER(squadra_serie_a) LIKE ?', ["%{$searchTerm}%"]);
+            });
+        }
+        // --- FINE LOGICA MANCANTE ---
+        
+        $calciatori = $query->orderByRaw("FIELD(ruolo, 'P', 'D', 'C', 'A')")
+        ->orderBy('quotazione_iniziale', 'desc')
+        ->paginate(50);
+        
+        $ruoliDisponibili = Calciatore::where('attivo', true)
+        ->when($tagAttivo, function ($q) use ($tagAttivo) {
+            $q->where('tag_lista_inserimento', $tagAttivo);
+        })
+        ->select('ruolo')
+        ->distinct()
+        ->orderByRaw("FIELD(ruolo, 'P', 'D', 'C', 'A')")
+        ->pluck('ruolo');
+        
+        // Se la richiesta è AJAX, restituisci solo la tabella.
+        if ($request->ajax()) {
+            return view('asta.partials.lista-calciatori', compact('calciatori'))->render();
+        }
+        
+        // Altrimenti, restituisci la pagina completa.
         return view('asta.calciatori-disponibili', compact(
-            'calciatori', 'messaggio', 'faseAstaCorrente', 'tagListaAttiva',
-            'squadreSerieAUniche', 'impostazioniLega', 'chiamataTapPossibile', 'prossimoChiamanteInfo'
+            'calciatori',
+            'impostazioniLega',
+            'ruoliDisponibili'
             ));
     }
-    
     
     public function registraChiamata(Request $request, Calciatore $calciatore)
     {
