@@ -1079,9 +1079,9 @@ class AdminController extends Controller
             'crediti_iniziali_squadra' => ['required', 'integer', 'min:0'],
             // Per 'ordine_chiamata', l'unicità è importante solo se il valore è fornito.
             // Se è null, non deve essere unico.
-            'ordine_chiamata' => ['nullable', 'integer', 'min:1', Rule::unique(User::class, 'ordine_chiamata')->where(function ($query) use ($request) {
-            return $request->input('ordine_chiamata') !== null && $request->input('ordine_chiamata') !== '';
-            })],
+            //'ordine_chiamata' => ['nullable', 'integer', 'min:1', Rule::unique(User::class, 'ordine_chiamata')->where(function ($query) use ($request) {
+            //return $request->input('ordine_chiamata') !== null && $request->input('ordine_chiamata') !== '';
+            //})],
             ]);
         
         try {

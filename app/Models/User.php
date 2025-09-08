@@ -24,7 +24,7 @@ class User extends Authenticatable // Potrebbe implementare MustVerifyEmail se l
         'crediti_rimanenti',
         'nome_proprietario',
         'phone_number',
-        'ordine_chiamata',
+        //'ordine_chiamata',
         'sostituzioni_stagionali_usate',
     ];
     
