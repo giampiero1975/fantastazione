@@ -107,7 +107,7 @@ class AdminController extends Controller
         }
         
         // Aggiungiamo un ordinamento per nome come fallback
-        $query->orderBy('name', 'asc');
+        $query->orderBy('id', 'asc');
         
         $utenti = $query->paginate(15);
         
