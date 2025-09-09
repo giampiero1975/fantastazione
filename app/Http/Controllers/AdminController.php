@@ -92,27 +92,45 @@ class AdminController extends Controller
             ));
     }
     
+    // app/Http/Controllers/AdminController.php
+    
     public function users(Request $request)
     {
         $impostazioni = ImpostazioneLega::first();
         $ordinePersonalizzato = $impostazioni ? $impostazioni->ordine_squadre_personalizzato : [];
         
+        // --- INIZIO CODICE MANCANTE ---
+        // Creiamo la mappa che associa ID utente => Posizione
+        $mappaOrdine = [];
+        if (!empty($ordinePersonalizzato)) {
+            // La funzione array_flip è un modo più veloce per fare questo.
+            // Se $ordinePersonalizzato è [5, 2, 1],
+            // $mappaPosizioni diventa [5 => 0, 2 => 1, 1 => 2]
+            $mappaPosizioni = array_flip($ordinePersonalizzato);
+            
+            foreach ($mappaPosizioni as $userId => $posizione) {
+                $mappaOrdine[$userId] = $posizione + 1; // Aggiungiamo +1 per partire da 1 invece che da 0
+            }
+        }
+        // --- FINE CODICE MANCANTE ---
+        
         $query = User::query();
         
-        // Se esiste un ordine personalizzato, lo usiamo per ordinare
+        // Manteniamo l'ordinamento visuale se esiste un ordine personalizzato
         if (!empty($ordinePersonalizzato)) {
-            // Converte l'array di ID in una stringa per la clausola FIELD di MySQL
             $ordineIdsString = implode(',', array_map('intval', $ordinePersonalizzato));
             $query->orderByRaw("FIELD(id, $ordineIdsString)");
         }
         
-        // Aggiungiamo un ordinamento per nome come fallback
+        // Usiamo l'ID come ordinamento di riserva
         $query->orderBy('id', 'asc');
         
         $utenti = $query->paginate(15);
         
-        return view('admin.utenti.index', compact('utenti'));
+        // La modifica FONDAMENTALE è qui: passiamo anche $mappaOrdine alla vista
+        return view('admin.utenti.index', compact('utenti', 'mappaOrdine'));
     }
+    
     public function editUser(User $user)
     {
         return view('admin.utenti.edit', compact('user'));
@@ -120,6 +138,7 @@ class AdminController extends Controller
     
     public function updateUser(Request $request, User $user)
     {
+        // 1. RIMOSSA LA REGOLA DI VALIDAZIONE PER 'ordine_chiamata'
         $validatedData = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'string', 'email', 'max:255', Rule::unique('users')->ignore($user->id)],
@@ -129,9 +148,9 @@ class AdminController extends Controller
             'password' => ['nullable', 'string', 'min:8', 'confirmed'],
             'nome_proprietario' => ['nullable', 'string', 'max:255'],
             'phone_number' => ['nullable', 'string', 'max:20'],
-            'ordine_chiamata' => ['nullable', 'integer', 'min:1', Rule::unique('users','ordine_chiamata')->ignore($user->id)],
         ]);
         
+        // 2. RIMOSSO IL CAMPO 'ordine_chiamata' DALL'ARRAY DEI DATI
         $userData = [
             'name' => $validatedData['name'],
             'email' => $validatedData['email'],
@@ -149,7 +168,6 @@ class AdminController extends Controller
         $user->update($userData);
         return redirect()->route('admin.utenti.index')->with('success', 'Utente aggiornato con successo.');
     }
-    
     // Funzione helper per ottenere le fasi possibili per il dropdown nel form
     private function getFasiDropdownOpzioni()
     {

@@ -54,14 +54,6 @@
                             <x-input-error :messages="$errors->get('crediti_rimanenti')" class="mt-2" />
                         </div>
 
-                        {{-- Ordine Chiamata --}}
-                        <div class="mt-4">
-                            <x-input-label for="ordine_chiamata" :value="__('Ordine di Chiamata (opzionale, numero progressivo)')" />
-                            <x-text-input id="ordine_chiamata" class="block mt-1 w-full" type="number" name="ordine_chiamata" :value="old('ordine_chiamata', $user->ordine_chiamata)" min="1" />
-                            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Lasciare vuoto se non si usa l'ordine di chiamata o per questo utente.</p>
-                            <x-input-error :messages="$errors->get('ordine_chiamata')" class="mt-2" />
-                        </div>
-
                         {{-- Password --}}
                         <div class="mt-4">
                             <x-input-label for="password" :value="__('Nuova Password (lasciare vuoto per non modificare)')" />
