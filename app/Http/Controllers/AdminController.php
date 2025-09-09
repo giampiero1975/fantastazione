@@ -117,6 +117,7 @@ class AdminController extends Controller
         $query = User::query();
         
         // Manteniamo l'ordinamento visuale se esiste un ordine personalizzato
+        
         if (!empty($ordinePersonalizzato)) {
             $ordineIdsString = implode(',', array_map('intval', $ordinePersonalizzato));
             $query->orderByRaw("FIELD(id, $ordineIdsString)");
@@ -1448,5 +1449,20 @@ class AdminController extends Controller
                 Log::error("Errore durante lo svincolo di GiocatoreAcquistato ID {$giocatoreAcquistato->id}: " . $e->getMessage());
                 return redirect()->route('admin.rose.squadre.index')->with('error', 'Errore tecnico durante lo svincolo: ' . $e->getMessage());
             }
+        }
+        
+        public function destroyUser(User $user)
+        {
+            // Sicurezza: impedisci all'admin di cancellare se stesso
+            if ($user->id === Auth::id()) {
+                return redirect()->route('admin.utenti.index')
+                ->with('error', 'Non puoi cancellare il tuo stesso account.');
+            }
+            
+            $nomeUtente = $user->name;
+            $user->delete();
+            
+            return redirect()->route('admin.utenti.index')
+            ->with('success', "L'utente '{$nomeUtente}' è stato cancellato con successo.");
         }
 }

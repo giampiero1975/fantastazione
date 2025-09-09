@@ -53,6 +53,7 @@ Route::get('/', function () {
             Route::post('/', [AdminController::class, 'storeUser'])->name('store'); // Definisce admin.utenti.store
             Route::get('/{user}/edit', [AdminController::class, 'editUser'])->name('edit');
             Route::patch('/{user}', [AdminController::class, 'updateUser'])->name('update');
+            Route::delete('/{user}', [AdminController::class, 'destroyUser'])->name('destroy');
             });
                 
                 // --- Impostazioni Lega e Asta ---
