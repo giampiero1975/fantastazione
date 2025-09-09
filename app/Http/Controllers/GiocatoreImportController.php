@@ -123,65 +123,38 @@ class GiocatoreImportController extends Controller
         }
     }
     
+    // app/Http/Controllers/GiocatoreImportController.php
+    
     public function indexGiocatori(Request $request)
     {
-        $query = Calciatore::query();
-        Log::debug('Valori request per filtri: ', $request->only(['tag_lista_inserimento', 'ruolo', 'squadra_serie_a', 'attivo']));
+        $squadre = Calciatore::select('squadra_serie_a')->distinct()->orderBy('squadra_serie_a')->pluck('squadra_serie_a');
+        $tagsDisponibili = Calciatore::select('tag_lista_inserimento')->whereNotNull('tag_lista_inserimento')->distinct()->orderBy('tag_lista_inserimento')->pluck('tag_lista_inserimento');
         
-        if ($request->filled('tag_lista_inserimento')) {
-            $query->where('tag_lista_inserimento', $request->input('tag_lista_inserimento'));
-        }
+        // Query di base: carica i calciatori INSIEME ai dati del loro acquisto e della squadra che li ha presi
+        $query = Calciatore::with(['acquistoAttuale.user']);
         
-        if ($request->filled('ruolo')) {
-            $query->where('ruolo', $request->input('ruolo'));
-        }
-        
+        // Applica i filtri
         if ($request->filled('squadra_serie_a')) {
-            $searchTermSquadra = trim($request->input('squadra_serie_a'));
-            Log::debug("Termine di ricerca per squadra (pulito): '$searchTermSquadra'");
-            $query->where('squadra_serie_a', 'like', '%' . $searchTermSquadra . '%');
+            $query->where('squadra_serie_a', $request->squadra_serie_a);
+        }
+        if ($request->filled('tag_lista_inserimento')) {
+            $query->where('tag_lista_inserimento', $request->tag_lista_inserimento);
+        }
+        if ($request->filled('q')) {
+            $searchTerm = $request->input('q');
+            $query->where('nome_completo', 'like', '%' . $searchTerm . '%');
         }
         
-        // FILTRO 4: STATO ATTIVO - MODIFICATO PER MOSTRARE TUTTI SE NON SPECIFICATO
-        $attivoValue = $request->input('attivo');
-        if ($attivoValue !== null && $attivoValue !== '') { // Applica filtro solo se '0' o '1' è selezionato
-            $query->where('attivo', (bool)$attivoValue);
-            Log::debug('Filtro attivo applicato con valore: ' . ((bool)$attivoValue ? 'true' : 'false'));
-        } else {
-            // Nessun filtro su 'attivo' applicato se l'utente seleziona "Tutti" per lo stato.
-            // La query mostrerà sia attivi che non attivi.
-            Log::debug('Filtro attivo NON applicato, mostra tutti gli stati.');
+        $calciatori = $query->orderBy('ruolo')->orderBy('nome_completo')->paginate(50);
+        
+        if ($request->ajax()) {
+            return view('admin.giocatori.partials.lista-calciatori', compact('calciatori'))->render();
         }
         
-        
-        $query->leftJoin('giocatori_acquistati', 'calciatori.id', '=', 'giocatori_acquistati.calciatore_id')
-        ->leftJoin('users', 'giocatori_acquistati.user_id', '=', 'users.id')
-        ->select(
-            'calciatori.*', // Seleziona tutte le colonne da calciatori
-            'users.name as nome_squadra_acquirente',
-            'giocatori_acquistati.prezzo_acquisto'
-            );
-        
-        Log::debug('SQL Query: ' . $query->toSql());
-        Log::debug('Bindings: ', $query->getBindings());
-        
-        $calciatori = $query->orderBy('tag_lista_inserimento', 'desc')
-        ->orderByRaw("FIELD(ruolo, 'P', 'D', 'C', 'A')") // Ordina per ruolo standard
-        ->orderBy('nome_completo')
-        ->paginate(25); // Paginazione
-        
-        
-        $tagsDisponibili = Calciatore::select('tag_lista_inserimento')->distinct()->orderBy('tag_lista_inserimento', 'desc')->pluck('tag_lista_inserimento');
-        $ruoliDisponibili = Calciatore::select('ruolo')->distinct()->orderByRaw("FIELD(ruolo, 'P', 'D', 'C', 'A')")->pluck('ruolo');
-        $squadreDisponibili = Calciatore::select('squadra_serie_a')->distinct()->orderBy('squadra_serie_a')->pluck('squadra_serie_a');
-        
-        return view('admin.giocatori.index', compact(
-            'calciatori',
-            'tagsDisponibili',
-            'ruoliDisponibili',
-            'squadreDisponibili'
-            // Se passi $request->all() come 'filtriAttuali', puoi usare old() o accedere direttamente a $filtriAttuali['nome_filtro']
-            // 'filtriAttuali' => $request->all() // O solo $request->query()
-            ));
+        return view('admin.giocatori.index', [
+            'calciatori' => $calciatori,
+            'squadre' => $squadre,
+            'tagsDisponibili' => $tagsDisponibili,
+        ]);
     }
 }
