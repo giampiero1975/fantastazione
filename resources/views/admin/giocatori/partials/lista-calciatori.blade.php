@@ -21,17 +21,25 @@
                     <td class="px-4 py-3 text-sm font-medium">{{ $calciatore->quotazione_iniziale }}</td>
                     
                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-            @if ($calciatore->acquistoAttuale) {{-- Ora questo è un singolo modello o null --}}
-                {{ $calciatore->acquistoAttuale->user->name ?? 'N/A' }}
+            @if ($calciatore->acquistoCorrente) {{-- Ho usato acquistoCorrente, se hai rinominato in acquistoAttuale, usa quello --}}
+                <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800 dark:bg-green-700 dark:text-green-100">
+                    {{ $calciatore->acquistoCorrente->user->name ?? 'N/A' }}
+                </span>
             @else
-                Svincolato
+                <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800 dark:bg-red-700 dark:text-red-100">
+                    Svincolato
+                </span>
             @endif
         </td>
         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-            @if ($calciatore->acquistoCorrente)
-                {{ $calciatore->acquistoCorrente->prezzo_acquisto ?? 'N/A' }}
+            @if ($calciatore->acquistoCorrente) {{-- Ho usato acquistoCorrente --}}
+                <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800 dark:bg-green-700 dark:text-green-100">
+                    {{ $calciatore->acquistoCorrente->prezzo_acquisto ?? 'N/A' }}
+                </span>
             @else
-                -
+                <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800 dark:bg-red-700 dark:text-red-100">
+                    -
+                </span>
             @endif
         </td>
                 </tr>

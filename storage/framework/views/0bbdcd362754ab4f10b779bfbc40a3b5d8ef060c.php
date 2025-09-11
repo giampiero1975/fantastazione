@@ -21,19 +21,27 @@
                     <td class="px-4 py-3 text-sm font-medium"><?php echo e($calciatore->quotazione_iniziale); ?></td>
                     
                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-            <?php if($calciatore->acquistoAttuale): ?> 
-                <?php echo e($calciatore->acquistoAttuale->user->name ?? 'N/A'); ?>
+            <?php if($calciatore->acquistoCorrente): ?> 
+                <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800 dark:bg-green-700 dark:text-green-100">
+                    <?php echo e($calciatore->acquistoCorrente->user->name ?? 'N/A'); ?>
 
+                </span>
             <?php else: ?>
-                Svincolato
+                <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800 dark:bg-red-700 dark:text-red-100">
+                    Svincolato
+                </span>
             <?php endif; ?>
         </td>
         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-            <?php if($calciatore->acquistoCorrente): ?>
-                <?php echo e($calciatore->acquistoCorrente->prezzo_acquisto ?? 'N/A'); ?>
+            <?php if($calciatore->acquistoCorrente): ?> 
+                <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800 dark:bg-green-700 dark:text-green-100">
+                    <?php echo e($calciatore->acquistoCorrente->prezzo_acquisto ?? 'N/A'); ?>
 
+                </span>
             <?php else: ?>
-                -
+                <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800 dark:bg-red-700 dark:text-red-100">
+                    -
+                </span>
             <?php endif; ?>
         </td>
                 </tr>
