@@ -12,39 +12,42 @@
             </tr>
         </thead>
         <tbody class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-            @forelse ($calciatori as $calciatore)
+            <?php $__empty_1 = true; $__currentLoopData = $calciatori; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $calciatore): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); $__empty_1 = false; ?>
                 <tr>
-                    <td class="px-4 py-3 text-sm font-medium">{{ $calciatore->id }}</td>
-                    <td class="px-4 py-3 text-sm font-medium text-gray-900 dark:text-gray-100">{{ $calciatore->nome_completo }}</td>
-                    <td class="px-4 py-3 text-sm font-medium">{{ $calciatore->ruolo }}</td>
-                    <td class="px-4 py-3 text-sm font-medium">{{ $calciatore->squadra_serie_a }}</td>
-                    <td class="px-4 py-3 text-sm font-medium">{{ $calciatore->quotazione_iniziale }}</td>
+                    <td class="px-4 py-3 text-sm font-medium"><?php echo e($calciatore->id); ?></td>
+                    <td class="px-4 py-3 text-sm font-medium text-gray-900 dark:text-gray-100"><?php echo e($calciatore->nome_completo); ?></td>
+                    <td class="px-4 py-3 text-sm font-medium"><?php echo e($calciatore->ruolo); ?></td>
+                    <td class="px-4 py-3 text-sm font-medium"><?php echo e($calciatore->squadra_serie_a); ?></td>
+                    <td class="px-4 py-3 text-sm font-medium"><?php echo e($calciatore->quotazione_iniziale); ?></td>
                     
                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-            @if ($calciatore->acquistoAttuale) {{-- Ora questo è un singolo modello o null --}}
-                {{ $calciatore->acquistoAttuale->user->name ?? 'N/A' }}
-            @else
+            <?php if($calciatore->acquistoAttuale): ?> 
+                <?php echo e($calciatore->acquistoAttuale->user->name ?? 'N/A'); ?>
+
+            <?php else: ?>
                 Svincolato
-            @endif
+            <?php endif; ?>
         </td>
         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-            @if ($calciatore->acquistoCorrente)
-                {{ $calciatore->acquistoCorrente->prezzo_acquisto ?? 'N/A' }}
-            @else
+            <?php if($calciatore->acquistoCorrente): ?>
+                <?php echo e($calciatore->acquistoCorrente->prezzo_acquisto ?? 'N/A'); ?>
+
+            <?php else: ?>
                 -
-            @endif
+            <?php endif; ?>
         </td>
                 </tr>
-            @empty
+            <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); if ($__empty_1): ?>
                 <tr>
                     <td colspan="8" class="px-6 py-4 text-center text-sm text-gray-500 dark:text-gray-400">
                         Nessun calciatore trovato con i criteri di ricerca.
                     </td>
                 </tr>
-            @endforelse
+            <?php endif; ?>
         </tbody>
     </table>
 </div>
 <div class="mt-4">
-    {{ $calciatori->appends(request()->query())->links() }}
-</div>
+    <?php echo e($calciatori->appends(request()->query())->links()); ?>
+
+</div><?php /**PATH C:\laragon\www\fantastazione\resources\views/admin/giocatori/partials/lista-calciatori.blade.php ENDPATH**/ ?>

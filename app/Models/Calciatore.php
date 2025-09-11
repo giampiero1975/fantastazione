@@ -43,8 +43,14 @@ class Calciatore extends Model
     ];
 
     // Qui in futuro definiremo le RELAZIONI, ad esempio con GiocatoreAcquistato
+    
     public function acquistoAttuale()
     {
-        return $this->hasMany(GiocatoreAcquistato::class);
+        return $this->hasOne(GiocatoreAcquistato::class);
+    }
+    
+    public function acquistoCorrente() // Ho rinominato per essere più specifico
+    {
+        return $this->hasOne(GiocatoreAcquistato::class);
     }
 }
