@@ -116,6 +116,15 @@ class AstaController extends Controller
      */
     public function mostraCalciatoriDisponibili(Request $request)
     {
+        $user = Auth::user(); 
+        if (!$user) {
+            // Gestisci il caso in cui l'utente non sia loggato, se possibile
+            // Ad esempio, reindirizza o restituisci un errore
+            // Per ora, possiamo impostare un utente "fittizio" o lanciare un'eccezione se non dovrebbe succedere
+            return redirect()->route('login'); // Esempio
+            // throw new \Exception("Utente non autenticato.");
+        }
+        
         $impostazioniLega = ImpostazioneLega::firstOrFail();
         $tagAttivo = $impostazioniLega->tag_lista_attiva;
         
@@ -163,14 +172,15 @@ class AstaController extends Controller
         
         // Se la richiesta è AJAX, restituisci solo la tabella.
         if ($request->ajax()) {
-            return view('asta.partials.lista-calciatori', compact('calciatori'))->render();
+            return view('asta.partials.lista-calciatori', compact('calciatori', 'impostazioniLega', 'user'))->render();
         }
         
         // Altrimenti, restituisci la pagina completa.
         return view('asta.calciatori-disponibili', compact(
             'calciatori',
             'impostazioniLega',
-            'ruoliDisponibili'
+            'ruoliDisponibili',
+            'user' // Passa l'utente corrente alla vista principale
             ));
     }
     

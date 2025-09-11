@@ -1,9 +1,18 @@
-<x-app-layout>
-    <x-slot name="header">
+<?php if (isset($component)) { $__componentOriginal8e2ce59650f81721f93fef32250174d77c3531da = $component; } ?>
+<?php $component = App\View\Components\AppLayout::resolve([] + (isset($attributes) && $attributes instanceof Illuminate\View\ComponentAttributeBag ? (array) $attributes->getIterator() : [])); ?>
+<?php $component->withName('app-layout'); ?>
+<?php if ($component->shouldRender()): ?>
+<?php $__env->startComponent($component->resolveView(), $component->data()); ?>
+<?php if (isset($attributes) && $attributes instanceof Illuminate\View\ComponentAttributeBag && $constructor = (new ReflectionClass(App\View\Components\AppLayout::class))->getConstructor()): ?>
+<?php $attributes = $attributes->except(collect($constructor->getParameters())->map->getName()->all()); ?>
+<?php endif; ?>
+<?php $component->withAttributes([]); ?>
+     <?php $__env->slot('header', null, []); ?> 
         <h2 class="font-semibold text-xl text-gray-800 dark:text-gray-200 leading-tight">
-            {{ __('Calciatori Disponibili') }}
+            <?php echo e(__('Calciatori Disponibili')); ?>
+
         </h2>
-    </x-slot>
+     <?php $__env->endSlot(); ?>
 
     <div class="py-12">
         <div class="max-w-7xl mx-auto sm:px-6 lg:px-8">
@@ -11,30 +20,30 @@
                 <div class="p-6 text-gray-900 dark:text-gray-100">
                     <h1 class="text-2xl font-bold mb-4">
                         Lista Calciatori Svincolati
-                        @if ($impostazioniLega->tag_lista_attiva)
-                            <span class="text-lg font-normal text-gray-500 dark:text-gray-400">(Tag Lista: {{ $impostazioniLega->tag_lista_attiva }})</span>
-                        @endif
+                        <?php if($impostazioniLega->tag_lista_attiva): ?>
+                            <span class="text-lg font-normal text-gray-500 dark:text-gray-400">(Tag Lista: <?php echo e($impostazioniLega->tag_lista_attiva); ?>)</span>
+                        <?php endif; ?>
                     </h1>
 
                     <div class="mb-4 bg-gray-50 dark:bg-gray-700 p-4 rounded-lg shadow-inner">
-                        <form id="filter-form" action="{{ route('asta.calciatori.disponibili') }}" method="GET" class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <form id="filter-form" action="<?php echo e(route('asta.calciatori.disponibili')); ?>" method="GET" class="grid grid-cols-1 md:grid-cols-3 gap-4">
                             <div>
                                 <label for="q" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Cerca per Nome o Squadra</label>
-                                <input type="text" name="q" id="q" value="{{ request('q') }}" placeholder="Es: Martinez o Inter" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50 dark:bg-gray-600 dark:border-gray-500 dark:text-gray-300">
+                                <input type="text" name="q" id="q" value="<?php echo e(request('q')); ?>" placeholder="Es: Martinez o Inter" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50 dark:bg-gray-600 dark:border-gray-500 dark:text-gray-300">
                             </div>
                             <div>
                                 <label for="ruolo" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Filtra per Ruolo</label>
                                 <select name="ruolo" id="ruolo" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50 dark:bg-gray-600 dark:border-gray-500 dark:text-gray-300">
                                     <option value="">Tutti i Ruoli</option>
-                                    @foreach ($ruoliDisponibili as $ruolo)
-                                        <option value="{{ $ruolo }}" @if(request('ruolo') == $ruolo) selected @endif>{{ $ruolo }}</option>
-                                    @endforeach
+                                    <?php $__currentLoopData = $ruoliDisponibili; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $ruolo): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
+                                        <option value="<?php echo e($ruolo); ?>" <?php if(request('ruolo') == $ruolo): ?> selected <?php endif; ?>><?php echo e($ruolo); ?></option>
+                                    <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?>
                                 </select>
                             </div>
                         </form>
                     </div>
 
-                    {{-- *** INIZIO MODIFICA: Inseriamo la tabella wrapper *** --}}
+                    
                     <div class="overflow-x-auto">
                         <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                             <thead class="bg-gray-50 dark:bg-gray-700">
@@ -54,23 +63,24 @@
                                 </tr>
                             </thead>
                             <tbody id="calciatori-list" class="bg-white divide-y divide-gray-200 dark:bg-gray-800 dark:divide-gray-700">
-                                {{-- Il partial sarà incluso qui e aggiornerà solo il tbody --}}
-                                @include('asta.partials.lista-calciatori')
+                                
+                                <?php echo $__env->make('asta.partials.lista-calciatori', \Illuminate\Support\Arr::except(get_defined_vars(), ['__data', '__path']))->render(); ?>
                             </tbody>
                         </table>
                     </div>
-                    {{-- *** FINE MODIFICA: Chiusura tabella wrapper *** --}}
+                    
 
                     <div class="mt-4">
-                        {{-- Questo div per la paginazione è corretto dove si trova --}}
-                        {{ $calciatori->appends(request()->query())->links() }}
+                        
+                        <?php echo e($calciatori->appends(request()->query())->links()); ?>
+
                     </div>
                 </div>
             </div>
         </div>
     </div>
 
-    @push('scripts')
+    <?php $__env->startPush('scripts'); ?>
     <script>
         document.addEventListener('DOMContentLoaded', function () {
             const form = document.getElementById('filter-form');
@@ -80,7 +90,7 @@
 
             function fetchCalciatori(page = 1) {
                 const query = new URLSearchParams(new FormData(form)).toString();
-                const url = `{{ route('asta.calciatori.disponibili') }}?${query}&page=${page}`;
+                const url = `<?php echo e(route('asta.calciatori.disponibili')); ?>?${query}&page=${page}`;
 
                 fetch(url, {
                     headers: {
@@ -131,5 +141,10 @@
             });
         });
     </script>
-    @endpush
-</x-app-layout>
+    <?php $__env->stopPush(); ?>
+ <?php echo $__env->renderComponent(); ?>
+<?php endif; ?>
+<?php if (isset($__componentOriginal8e2ce59650f81721f93fef32250174d77c3531da)): ?>
+<?php $component = $__componentOriginal8e2ce59650f81721f93fef32250174d77c3531da; ?>
+<?php unset($__componentOriginal8e2ce59650f81721f93fef32250174d77c3531da); ?>
+<?php endif; ?><?php /**PATH C:\laragon\www\fantastazione\resources\views/asta/calciatori-disponibili.blade.php ENDPATH**/ ?>
