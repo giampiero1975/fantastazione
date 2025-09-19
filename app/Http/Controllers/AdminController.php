@@ -72,7 +72,13 @@ class AdminController extends Controller
     
     public function dashboard()
     {
-        $impostazioniLega = ImpostazioneLega::firstOrCreate([], [
+        // IN CIMA al metodo dashboard()
+        if (!\App\Models\ImpostazioneLega::first()) {
+            return redirect()->route('admin.impostazioni.index')
+            ->with('warning', 'Benvenuto! Per iniziare, configura le impostazioni della lega.');
+        }
+        
+        $impostazioniLega = ImpostazioneLega::firstOrFail([], [
             'fase_asta_corrente' => 'PRE_ASTA', 'crediti_iniziali_lega' => 500,
             'num_portieri' => 3, 'num_difensori' => 8, 'num_centrocampisti' => 8, 'num_attaccanti' => 6,
             'tag_lista_attiva' => null, 'modalita_asta' => 'voce',
@@ -200,7 +206,7 @@ class AdminController extends Controller
     {
         // Carica le impostazioni, creandole con valori di default se non esistono.
         // È importante avere valori di default sensati qui se ImpostazioneLega::firstOrFail() non è adatto.
-        $impostazioni = ImpostazioneLega::firstOrCreate([], [
+        $impostazioni = ImpostazioneLega::firstOrFail([], [
             'fase_asta_corrente' => 'PRE_ASTA',
             'crediti_iniziali_lega' => 500,
             'num_portieri' => 3,

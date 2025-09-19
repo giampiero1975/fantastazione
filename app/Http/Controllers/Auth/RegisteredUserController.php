@@ -36,10 +36,17 @@ class RegisteredUserController extends Controller
             'password' => ['required', 'confirmed', Rules\Password::defaults()],
         ]);
 
+        // Dentro il metodo store()
+        
+        // Controlla se questo è il primo utente in assoluto
+        $isFirstUser = \App\Models\User::count() === 0;
+        
         $user = User::create([
             'name' => $request->name,
             'email' => $request->email,
             'password' => Hash::make($request->password),
+            // Imposta is_admin a true (1) se è il primo utente, altrimenti a false (0)
+            'is_admin' => $isFirstUser,
         ]);
 
         event(new Registered($user));
